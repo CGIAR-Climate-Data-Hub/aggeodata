@@ -1,0 +1,142 @@
+# =============================================================================
+# pyproject.toml — aggeodata
+# =============================================================================
+
+[build-system]
+requires      = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+
+[project]
+name        = "aggeodata"
+version     = "0.1.0"
+description = "Multi-source climate and soil data ingestion and datacube transforms (CHIRPS, CHIRTS, AgERA5, NASA POWER, SoilGrids)."
+readme      = "README.md"
+license     = {text = "MIT"}
+requires-python = ">=3.10"
+
+authors = [
+    { name = "Andres Aguilar", email = "andres.aguilar@cgiar.org" },
+]
+
+keywords = [
+    "chirps", "agera5", "soilgrids", "nasa-power", "chirts",
+    "xarray", "dask", "datacube", "netcdf", "geospatial", "climate", "soil",
+]
+
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: GIS",
+    "Topic :: Scientific/Engineering :: Atmospheric Science",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Typing :: Typed",
+]
+
+dependencies = [
+    # --- Spatial / raster ---
+    "xarray>=2024.1.0",
+    "dask[array]>=2024.1.0",
+    "netCDF4>=1.6.5",
+    "rioxarray>=0.15.0",
+    "rasterio>=1.3.9",
+    "geopandas>=1.0.0",
+    "shapely>=2.0.0",
+
+    # --- Numerical ---
+    "numpy>=1.26.0",
+    "pandas>=2.1.0",
+
+    # --- Climate indices ---
+    "xclim>=0.48.0",
+
+    # --- Utilities ---
+    "tqdm>=4.66.0",
+    "requests>=2.31.0",
+    "unidecode>=1.3.0",
+    "pyproj>=3.6.0",
+]
+
+
+[project.optional-dependencies]
+
+download = [
+    "cdsapi>=0.7.0",
+    "soilgrids>=0.1.4",
+    "s3fs>=2024.1.0",
+    "zarr>=2.17.0",
+]
+
+viz = [
+    "matplotlib>=3.9.0",
+    "plotly>=5.20.0",
+]
+
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=5.0.0",
+    "ruff>=0.4.0",
+    "mypy>=1.9.0",
+    "pre-commit>=3.7.0",
+    "build>=1.2.0",
+    "twine>=5.0.0",
+]
+
+mcp = [
+    "mcp[cli]>=1.0.0",
+]
+
+all = [
+    "aggeodata[download,viz,dev,mcp]",
+]
+
+
+[project.urls]
+Homepage      = "https://github.com/anaguilarar/aggeodata"
+Repository    = "https://github.com/anaguilarar/aggeodata"
+"Bug Tracker" = "https://github.com/anaguilarar/aggeodata/issues"
+
+
+[tool.setuptools]
+zip-safe = false
+
+[tool.setuptools.packages.find]
+where   = ["src"]
+include = ["aggeodata*"]
+exclude = ["tests*"]
+
+[tool.setuptools.package-data]
+aggeodata = ["py.typed"]
+
+
+[tool.ruff]
+line-length    = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP", "ANN", "B"]
+ignore = ["ANN101", "ANN102"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["aggeodata"]
+
+
+[tool.mypy]
+python_version         = "3.10"
+strict                 = true
+ignore_missing_imports = true
+warn_return_any        = true
+disallow_untyped_defs  = true
+
+
+[tool.pytest.ini_options]
+testpaths    = ["tests"]
+python_files = ["test_*.py"]
+addopts      = "-v --tb=short --cov=aggeodata --cov-report=term-missing"
+
+[tool.coverage.run]
+source = ["src"]
+omit   = ["*/tests/*", "*/__pycache__/*"]

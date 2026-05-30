@@ -1,0 +1,6 @@
+tests/
+.claude/
+*.zip
+__pycache__/
+*.egg-info/
+.env

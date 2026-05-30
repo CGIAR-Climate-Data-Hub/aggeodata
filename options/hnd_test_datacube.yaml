@@ -1,0 +1,48 @@
+# Honduras test — datacube assembly phase
+# Same spatial/temporal extent and variables as the download config.
+# reference_variable: pr sets the output spatial grid resolution.
+
+DATES:
+  starting_date: "2020-01-01"
+  ending_date:   "2020-03-31"
+
+SPATIAL_INFO:
+  spatial_file: null
+  extent: [-87.5, 13.5, -86.5, 14.5]
+
+CLIMATE:
+  variables:
+    pr:
+      source: chirps
+
+    tasmax:
+      source: chirts
+
+    tasmin:
+      source: chirts
+
+    hurs_06:
+      source: agera5
+
+    hurs_09:
+      source: agera5
+
+    hurs_12:
+      source: agera5
+
+    etr:
+      source: agera5
+
+SOIL:
+  enabled: false
+
+GENERAL:
+  suffix:              "hnd_test"
+  ncores:              2
+  task:                "datacube"
+  reference_variable:  "pr"
+  agera5_version:      "2_0"
+  target_crs:          "EPSG:4326"
+
+PATHS:
+  output_path: "tests/_test_outputs_hnd"

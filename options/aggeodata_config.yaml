@@ -1,0 +1,99 @@
+# =============================================================================
+# options/aggeodata_config.yaml
+# aggeodata — Climate + soil download and datacube configuration
+#
+# Variable keys follow CF / xclim conventions:
+#   pr       — daily precipitation flux          (mm day-1)
+#   tasmax   — daily maximum 2-m air temperature (°C)
+#   tasmin   — daily minimum 2-m air temperature (°C)
+#   tas      — daily mean 2-m air temperature    (°C)
+#   rsds     — surface downwelling shortwave      (W m-2)
+#   hurs     — relative humidity at 2 m          (%)
+#   sfcWind  — near-surface wind speed           (m s-1)
+#   tdps     — dew-point temperature at 2 m      (°C)
+# =============================================================================
+
+DATES:
+  starting_date: "2020-01-01"
+  ending_date:   "2021-12-31"
+
+# ---------------------------------------------------------------------------
+# Spatial extent — choose ONE:
+#   extent       [xmin, ymin, xmax, ymax] EPSG:4326
+#   spatial_file path to a shapefile / GeoJSON (takes priority)
+# ---------------------------------------------------------------------------
+SPATIAL_INFO:
+  spatial_file: null
+  extent: [-87.5, 14.0, -86.5, 15.0]   # 1x1 deg box — Honduras test
+
+# ---------------------------------------------------------------------------
+# Climate variables.
+# Each key is a CF variable name; 'source' selects the data provider.
+#
+# Supported source / variable combinations:
+#   pr      : chirps  | nasa_power
+#   tasmax  : chirts  | agera5   | nasa_power
+#   tasmin  : chirts  | agera5   | nasa_power
+#   rsds    : agera5  | nasa_power  (nasa_power auto-uses REST — not in S3 Zarr)
+#   hurs    : nasa_power | agera5
+#   sfcWind : nasa_power | agera5
+#   tas     : nasa_power
+#   tdps    : agera5
+#
+# Optional per-variable overrides:
+#   chirts_source   : "era5" (default) | "chirts"  — only when source=chirts
+#   agera5_key      : override the default CF → AgERA5 variable mapping
+#   nasa_power_param: override the default CF → NASA POWER parameter code
+# ---------------------------------------------------------------------------
+CLIMATE:
+  variables:
+
+    pr:
+      source: chirps          # chirps | nasa_power
+
+    tasmax:
+      source: chirts          # chirts | agera5 | nasa_power
+
+    tasmin:
+      source: chirts          # chirts | agera5 | nasa_power
+
+    rsds:
+      source: agera5          # agera5 | nasa_power
+
+    hurs:
+      source: nasa_power      # nasa_power | agera5
+
+    sfcWind:
+      source: nasa_power      # nasa_power | agera5
+
+# ---------------------------------------------------------------------------
+# Soil layers (SoilGrids)
+# Physical/chemical (250 m via WCS): clay, sand, silt, bdod, cfvo, nitrogen,
+#                                    phh2o, soc, cec
+# Hydraulic (1 km via GCS bucket):   wv0010, wv0033, wv1500
+# ---------------------------------------------------------------------------
+SOIL:
+  enabled: false
+  layers:
+    - clay
+    - sand
+    - wv1500
+  depths:
+    - "0-5"
+    - "5-15"
+
+# ---------------------------------------------------------------------------
+# General settings
+#   task: "download"  — download raw files only
+#   task: "datacube"  — build spatially co-registered multi-variable cube
+# ---------------------------------------------------------------------------
+GENERAL:
+  suffix:              "hnd_test"   # appended to output folder names
+  ncores:              2            # parallel download threads
+  task:                "download"   # "download" | "datacube"
+  reference_variable:  "pr"        # CF name used as spatial reference for the cube
+  agera5_version:      "2_0"       # AgERA5 product version  "1_1" | "2_0"
+  nasa_power_backend:  "s3"        # "s3" (Zarr, fast) | "rest" (tile API)
+
+PATHS:
+  output_path: "data/raw/"

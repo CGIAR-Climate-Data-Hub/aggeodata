@@ -1,0 +1,46 @@
+# Ghana test — download phase
+# Area: 1×1 deg in the Ashanti/Brong-Ahafo cocoa belt | Period: Jan–Mar 2020
+# Variables: pr (CHIRPS), tasmax/tasmin (CHIRTS), rh06/09/12 + etr (AgERA5)
+
+DATES:
+  starting_date: "2020-01-01"
+  ending_date:   "2020-03-31"
+
+SPATIAL_INFO:
+  spatial_file: null
+  extent: [-2.0, 6.5, -1.0, 7.5]   # [xmin, ymin, xmax, ymax]
+
+CLIMATE:
+  variables:
+    pr:
+      source: chirps
+
+    tasmax:
+      source: chirts
+
+    tasmin:
+      source: chirts
+
+    hurs_06:
+      source: agera5
+
+    hurs_09:
+      source: agera5
+
+    hurs_12:
+      source: agera5
+
+    etr:
+      source: agera5
+
+SOIL:
+  enabled: false
+
+GENERAL:
+  suffix:          "gha_test"
+  ncores:          4
+  task:            "download"
+  agera5_version:  "2_0"
+
+PATHS:
+  output_path: "tests/_test_outputs_gha"

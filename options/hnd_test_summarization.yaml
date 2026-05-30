@@ -1,0 +1,130 @@
+# Honduras test — climate feature summarization (PipelineConfig)
+# Reads the prepared datacube (CF-renamed, time→date, K→°C).
+# 2-month temporal window ending on each observation date.
+
+general_info:
+  n_cores: 1
+  output_path: "tests/_test_outputs_hnd/climate_features"
+  year_oi: null
+
+climate_config:
+  climate_data_path: "tests/_test_outputs_hnd/climate_hnd_test_prepared.nc"
+
+  # ── Climate indices ──────────────────────────────────────────────────────
+  indices:
+    - name: "n_wet_spells"
+      description: "Number of wet spells (pr >= 1 mm for >= 5 consecutive days)"
+      meteorological_variables: ["pr"]
+      parameters: {threshold_mm: 1.0, min_duration_days: 5}
+
+    - name: "n_dry_spells"
+      description: "Number of dry spells (pr < 1 mm for >= 5 consecutive days)"
+      meteorological_variables: ["pr"]
+      parameters: {threshold_mm: 1.0, min_duration_days: 5}
+
+    - name: "avg_wet_spell_duration"
+      description: "Average length of wet spells"
+      meteorological_variables: ["pr"]
+      parameters: {threshold_mm: 1.0, min_duration_days: 5}
+
+    - name: "avg_dry_spell_duration"
+      description: "Average length of dry spells"
+      meteorological_variables: ["pr"]
+      parameters: {threshold_mm: 1.0, min_duration_days: 5}
+
+    - name: "precip_max_15d"
+      description: "Maximum precipitation accumulated over any 15-day rolling window"
+      meteorological_variables: ["pr"]
+      parameters: {}
+
+    - name: "consecutive_dry_days"
+      description: "Longest run of consecutive dry days (pr < 1 mm)"
+      meteorological_variables: ["pr"]
+      parameters: {threshold_mm: 1.0}
+
+    - name: "daily_intensity_index"
+      description: "Mean rainfall on wet days (pr >= 1 mm)"
+      meteorological_variables: ["pr"]
+      parameters: {threshold_mm: 1.0}
+
+    - name: "max_temp_days"
+      description: "Days where tmax >= 32 °C"
+      meteorological_variables: ["tmax"]
+      parameters: {threshold_celsius: 32.0}
+
+    - name: "heat_wave_duration"
+      description: "Average heat wave duration (tmax >= 30 °C for >= 5 days)"
+      meteorological_variables: ["tmax"]
+      parameters: {thresh: 30.0, min_duration_days: 5}
+
+    - name: "cold_wave_duration"
+      description: "Average cold wave duration (tmin <= 15 °C for >= 5 days)"
+      meteorological_variables: ["tmin"]
+      parameters: {thresh: 15.0, min_duration_days: 5}
+
+    - name: "tmean_25_30_days"
+      description: "Days where mean temperature is between 25 °C and 30 °C"
+      meteorological_variables: ["tmean"]
+      parameters: {thresholds: [25, 30], op_symbols: [">=", "<="]}
+
+    - name: "growing_degree_days"
+      description: "Accumulated GDD above 10 °C base temperature"
+      meteorological_variables: ["tmean"]
+      parameters: {base_temperature: 10.0}
+
+    - name: "max_hr_days"
+      description: "Days where daily mean RH >= 80 %"
+      meteorological_variables: ["dailyhr"]
+      parameters: {threshold_percent: 80.0}
+
+    - name: "max_hr06_days"
+      description: "Days where 06:00 RH >= 80 %"
+      meteorological_variables: ["rh06"]
+      parameters: {threshold_percent: 80.0}
+
+    - name: "max_hr09_days"
+      description: "Days where 09:00 RH >= 80 %"
+      meteorological_variables: ["rh09"]
+      parameters: {threshold_percent: 80.0}
+
+    - name: "max_hr12_days"
+      description: "Days where 12:00 RH >= 80 %"
+      meteorological_variables: ["rh12"]
+      parameters: {threshold_percent: 80.0}
+
+  # ── Meteorological summaries ─────────────────────────────────────────────
+  summarizations:
+    - meteorological_variable: "tmax"
+      summary_function: "mean"
+
+    - meteorological_variable: "tmin"
+      summary_function: "mean"
+
+    - meteorological_variable: "tmean"
+      summary_function: "mean"
+
+    - meteorological_variable: "rh06"
+      summary_function: "mean"
+
+    - meteorological_variable: "rh09"
+      summary_function: "mean"
+
+    - meteorological_variable: "rh12"
+      summary_function: "mean"
+
+    - meteorological_variable: "dailyhr"
+      summary_function: "mean"
+
+    - meteorological_variable: "pr"
+      summary_function: "sum"
+
+    - meteorological_variable: "etr"
+      summary_function: "sum"
+
+# ── Field observations ───────────────────────────────────────────────────
+data_summarization:
+  field_data_source:    "tests/_test_outputs_hnd/test_points.parquet"
+  column_ending_date:   "collection"
+  temporal_window:      2       # months
+  nmonths_lookback:     0
+  output_filename:      "climate_features_hnd_test.csv"

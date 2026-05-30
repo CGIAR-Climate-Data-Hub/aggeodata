@@ -1,0 +1,193 @@
+general_info:
+  n_cores: 1
+  output_path: "outputs/climate_indices" 
+  spatial_data_path: "outputs/spatial_data/spatial_data_unique_collection_coords_gridcell_v2.parquet"
+  year_oi: 2014
+
+# Environmental input and processing settings (ClimateConfig)
+climate_config:
+  climate_data_path: "outputs/climate_data/weather_sea_2014_2013_2014.nc" # Root path to climate grids
+  
+  # List of complex climate indices to calculate (List[ClimateIndex])
+  indices:
+    - name: "vpd_lt_15"
+      description: "Vapor Pressure Deficit lower than 1.5 kPa"
+      meteorological_variables:
+        - "vpd"
+      parameters:
+        threshold: 1.5
+
+    - name: "n_wet_spells"
+      description: "Number of wet spells based on precipitation threshold and minimum duration"
+      meteorological_variables:
+        - "pr"
+      parameters:
+        thresh: 1.0
+        min_duration_days: 5
+
+    - name: "n_dry_spells"
+      description: "Number of dry spells based on precipitation threshold and minimum duration"
+      meteorological_variables:
+        - "pr"
+      parameters:
+        thresh: 1.0
+        min_duration_days: 5
+
+    - name: "avg_wet_spell_duration"
+      description: "Average duration of observed wet spells"
+      meteorological_variables:
+        - "pr"
+      parameters:
+        thresh: 1.0
+        min_duration_days: 5
+
+    - name: "max_hr_days"
+      description: "Count of days where relative humidity exceeds threshold limits"
+      meteorological_variables:
+        - "hurs"
+      parameters:
+        thresh: 85
+
+    - name: "max_hr06_days"
+      description: "Count of days where relative humidity exceeds threshold limits"
+      meteorological_variables:
+        - "rh06"
+      parameters:
+        thresh: 85
+
+    - name: "max_hr12_days"
+      description: "Count of days where relative humidity exceeds threshold limits"
+      meteorological_variables:
+        - "rh12"
+      parameters:
+        thresh: 85
+
+    - name: "max_hr09_days"
+      description: "Count of days where relative humidity exceeds threshold limits"
+      meteorological_variables:
+        - "rh09"
+      parameters:
+        thresh: 85
+
+    - name: "max_hr15_days"
+      description: "Count of days where relative humidity exceeds threshold limits"
+      meteorological_variables:
+        - "rh15"
+      parameters:
+        thresh: 85
+
+    - name: "max_hr18_days"
+      description: "Count of days where relative humidity exceeds threshold limits"
+      meteorological_variables:
+        - "rh18"
+      parameters:
+        thresh: 85
+    
+    - name: "consecutive_dry_days"
+      description: "Maximum number of consecutive dry days below precipitation threshold"
+      meteorological_variables:
+        - "pr"
+      parameters:
+        thresh: 1.0
+
+    - name: "growing_degree_days"
+      description: "Growing Degree Days (GDD) accumulated above base temperature"
+      meteorological_variables:
+        - "tas"
+      parameters:
+        base_temperature: 15
+
+    - name: "heat_wave_duration"
+      description: "Duration of heat waves defined as consecutive days above temperature threshold"
+      meteorological_variables:
+        - "tasmax"
+      parameters:
+        thresh: 30
+        min_duration_days: 5
+
+    - name: "cold_wave_duration"
+      description: "Duration of cold waves defined as consecutive days below temperature threshold"
+      meteorological_variables:
+        - "tasmin"
+      parameters:
+        thresh: 22
+        min_duration_days: 5
+
+    - name: "daily_intensity_index"
+      description: "Daily precipitation intensity index"
+      meteorological_variables:
+        - "pr"
+      parameters:
+        thresh: 1.0
+
+  # List of basic descriptive stats to run (List[ClimateSummarisation])
+  summarizations:
+    - meteorological_variable: "tasmax"
+      description: "Mean maximum temperature during the time window"
+      summary_function: "mean" 
+      parameters: null
+
+    - meteorological_variable: "tasmin"
+      description: "Mean minimum temperature during the time window"
+      summary_function: "mean" 
+      parameters: null
+
+    - description: "Mean temperature during the time window"
+      meteorological_variable: "tmean"
+      summary_function: "mean" 
+      parameters: null
+
+    - description: "Averaged rh06 relative humidity"
+      meteorological_variable: "rh06"
+      summary_function: "mean"
+      parameters: null
+
+    - description: "Averaged rh09 relative humidity"
+      meteorological_variable: "rh09"
+      summary_function: "mean"
+      parameters: null
+
+    - description: "Averaged rh12 relative humidity"
+      meteorological_variable: "rh12"
+      summary_function: "mean"
+      parameters: null
+
+    - description: "Averaged rh15 relative humidity"
+      meteorological_variable: "rh15"
+      summary_function: "mean"
+      parameters: null
+
+    - description: "Averaged rh18 relative humidity"
+      meteorological_variable: "rh18"
+      summary_function: "mean"
+      parameters: null
+
+    - description: "Accumulated Vapor Pressure Deficit values"
+      meteorological_variable: "vpd"
+      summary_function: "sum"
+      parameters: null
+
+    - description: "Accumulated precipitation (Total Rainfall)"
+      meteorological_variable: "pr"
+      summary_function: "sum"
+      parameters: null
+
+    - desciption: "Accumulated evapotranspiration"
+      meteorological_variable: "etr"
+      summary_function: "sum"
+      parameters: null
+
+    - description: "Accumulated incoming solar radiation"
+      meteorological_variable: "rsds"
+      summary_function: "sum"
+      parameters: null
+
+# Trial locations and temporal alignments (DataSummarizationConfig)
+data_summarization:
+  field_data_source: "outputs/spatial_data/spatial_data_unique_collection_coords_gridcell_v2.parquet"
+  output_filename: "extracted_climate_data_sea_2014.csv"
+  column_starting_date: null
+  column_ending_date: "collection"            # Column mapping the end of the experimental event
+  temporal_window: 6                            # Evaluates a 6-month aggregate window
+  nmonths_lookahead: 0                          # Calculates metrics 0 months into the future
+  nmonths_lookback: 3
