@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "aggeodata": {
+      "command": "python",
+      "args": ["-m", "aggeodata.mcp_server"]
+    }
+  }
+}
