@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 _POWER_REGIONAL_URL = "https://power.larc.nasa.gov/api/temporal/daily/regional"
 _S3_ZARR_PATH = "nasa-power/merra2/temporal/power_merra2_daily_temporal_lst.zarr"
-_MAX_DEGREE = 10.0
+_MAX_DEGREE = 9.9  # NASA POWER regional API rejects ranges of exactly 10°
 _TIMEOUT = 300
 
 
