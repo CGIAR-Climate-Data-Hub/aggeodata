@@ -140,7 +140,12 @@ def download_nasa_power(
     adm_level: int = 1,
     bbox: list[float] | None = None,
 ) -> str:
-    """Download NASA POWER daily data via the S3 Zarr backend (no API key needed).
+    """Download NASA POWER daily data (no API key needed).
+
+    Routes each parameter to its fastest backend automatically: vars in the
+    public S3 Zarr store (``T2M_MAX``, ``T2M_MIN``, ``RH2M``, ``WS2M``) are
+    read from S3, while REST-only vars such as ``ALLSKY_SFC_SW_DWN`` (solar
+    radiation) are fetched from the POWER regional REST API and merged in.
 
     Common *parameters*: ``ALLSKY_SFC_SW_DWN`` (solar radiation), ``RH2M``
     (relative humidity), ``T2M_MAX``, ``T2M_MIN``, ``WS2M`` (wind speed).
@@ -151,8 +156,8 @@ def download_nasa_power(
         Path to the saved NetCDF file.
     """
     extent = _resolve_extent(country_code, feature_name, adm_level, bbox)
-    from aggeodata.ingestion.nasa_power import NASAPowerS3Downloader
-    dl = NASAPowerS3Downloader(parameters=parameters)
+    from aggeodata.ingestion.nasa_power import NASAPowerDownloader
+    dl = NASAPowerDownloader(parameters=parameters)
     return dl.download(
         extent=extent,
         starting_date=starting_date,

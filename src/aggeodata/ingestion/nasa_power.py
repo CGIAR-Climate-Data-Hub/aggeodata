@@ -227,7 +227,11 @@ class NASAPowerDownloader:
                 output_folder=output_folder,
                 force=force,
             )
-            datasets.append(xr.open_dataset(s3_nc))
+            # Load into memory and close the handle: the S3 sub-download wrote
+            # to the same path as out_nc, so the final merge must not be reading
+            # from a file it is about to overwrite.
+            with xr.open_dataset(s3_nc) as s3_ds:
+                datasets.append(s3_ds.load())
 
         if rest_vars:
             logger.info("NASA POWER: fetching %s via REST API (tiled)", rest_vars)
