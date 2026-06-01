@@ -33,8 +33,15 @@ indices_ds = calculate_indices(ds, indices_dict)
 import operator
 import numpy as np
 import xarray
-import xclim
-from xclim.indices import run_length
+
+try:
+    import xclim
+    from xclim.indices import run_length
+except ImportError as _xclim_err:
+    raise ImportError(
+        "xclim is required for climate indices. "
+        "Install it with: pip install 'aggeodata[indices]'"
+    ) from _xclim_err
 
 
 # ---------------------------------------------------------------------------
