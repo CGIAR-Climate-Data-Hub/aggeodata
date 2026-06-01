@@ -259,11 +259,17 @@ class NASAPowerDownloader:
         if not datasets:
             raise RuntimeError("NASA POWER: no variables to download.")
 
-        merged = (
-            xr.merge(datasets, compat="override", join="override")
-            if len(datasets) > 1
-            else datasets[0]
-        )
+        if len(datasets) > 1:
+            # Backends can return different grid resolutions (S3 vs REST).
+            # Snap every dataset to the first one's lat/lon grid before merging.
+            ref = datasets[0]
+            aligned = [ref] + [
+                ds.interp_like(ref, method="nearest", kwargs={"fill_value": "extrapolate"})
+                for ds in datasets[1:]
+            ]
+            merged = xr.merge(aligned, compat="override", join="override")
+        else:
+            merged = datasets[0]
         merged = rename_cf_vars(merged)
         encoding = {v: {"zlib": True, "complevel": 4} for v in merged.data_vars}
         merged.to_netcdf(out_nc, encoding=encoding, engine="netcdf4")
