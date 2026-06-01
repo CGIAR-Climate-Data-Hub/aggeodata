@@ -137,20 +137,27 @@ def _normalize_power_dataset(ds: xr.Dataset, parameters: list[str]) -> xr.Datase
 # ---------------------------------------------------------------------------
 
 class NASAPowerDownloader:
-    """Download daily regional climate data from the NASA POWER REST API.
+    """Download NASA POWER daily data, automatically choosing the fastest backend.
+
+    Variables available in the public S3 Zarr store are fetched via
+    ``NASAPowerS3Downloader`` (no rate limits, no tiling).  Variables only
+    available through the REST API (e.g. ``ALLSKY_SFC_SW_DWN``) are fetched
+    via the regional REST endpoint with automatic tiling.  Both sets are
+    merged into a single output NetCDF — callers never need to know which
+    backend was used.
 
     Parameters
     ----------
     parameters : list[str]
         NASA POWER parameter codes (community AG).  Common codes:
-        ``ALLSKY_SFC_SW_DWN``, ``T2M``, ``T2M_MAX``, ``T2M_MIN``,
-        ``RH2M``, ``WS2M``, ``PRECTOTCORR``.
+        ``ALLSKY_SFC_SW_DWN``, ``T2M_MAX``, ``T2M_MIN``, ``RH2M``,
+        ``WS2M``, ``PRECTOTCORR``.
     community : str
         NASA POWER community.  ``"AG"`` (default), ``"RE"``, or ``"SB"``.
 
     Examples
     --------
-    >>> dl = NASAPowerDownloader(parameters=["T2M_MAX", "T2M_MIN", "RH2M"])
+    >>> dl = NASAPowerDownloader(parameters=["ALLSKY_SFC_SW_DWN", "WS2M"])
     >>> path = dl.download(
     ...     extent=[-90.5, 13.0, -88.5, 15.5],
     ...     starting_date="2015-01-01",
@@ -177,7 +184,7 @@ class NASAPowerDownloader:
         output_folder: str,
         force: bool = False,
     ) -> str:
-        """Download NASA POWER data for the given extent and date range.
+        """Download NASA POWER data, routing each variable to its best backend.
 
         Parameters
         ----------
@@ -195,7 +202,7 @@ class NASAPowerDownloader:
         Returns
         -------
         str
-            Path to the saved NetCDF file.
+            Path to the merged output NetCDF file.
         """
         Path(output_folder).mkdir(parents=True, exist_ok=True)
         fname = f"nasa_power_{starting_date}_{ending_date}.nc"
@@ -205,27 +212,53 @@ class NASAPowerDownloader:
             logger.info("NASA POWER: using cached file %s", out_nc)
             return out_nc
 
-        xmin, ymin, xmax, ymax = extent
-        tiles = _tile_bbox(xmin, ymin, xmax, ymax)
-        chunks = _yearly_chunks(starting_date, ending_date)
+        s3_vars  = [v for v in self.parameters if v in NASAPowerS3Downloader._DEFAULT_PARAMS]
+        rest_vars = [v for v in self.parameters if v not in NASAPowerS3Downloader._DEFAULT_PARAMS]
 
-        all_datasets: list[xr.Dataset] = []
-        for chunk_start, chunk_end in chunks:
-            start = _yyyymmdd(chunk_start)
-            end = _yyyymmdd(chunk_end)
-            for i, (tx1, ty1, tx2, ty2) in enumerate(tiles):
-                logger.info("NASA POWER: tile %d/%d  %s→%s", i + 1, len(tiles), chunk_start, chunk_end)
-                ds_tile = _download_tile(tx1, ty1, tx2, ty2, start, end, self.parameters, self.community)
-                if ds_tile is not None:
-                    all_datasets.append(_normalize_power_dataset(ds_tile, self.parameters))
+        datasets: list[xr.Dataset] = []
 
-        if not all_datasets:
-            raise RuntimeError("NASA POWER: no data downloaded for any tile/chunk.")
+        if s3_vars:
+            logger.info("NASA POWER: fetching %s via S3 Zarr", s3_vars)
+            s3_dl = NASAPowerS3Downloader(parameters=s3_vars)
+            s3_nc = s3_dl.download(
+                extent=extent,
+                starting_date=starting_date,
+                ending_date=ending_date,
+                output_folder=output_folder,
+                force=force,
+            )
+            datasets.append(xr.open_dataset(s3_nc))
+
+        if rest_vars:
+            logger.info("NASA POWER: fetching %s via REST API (tiled)", rest_vars)
+            xmin, ymin, xmax, ymax = extent
+            tiles = _tile_bbox(xmin, ymin, xmax, ymax)
+            chunks = _yearly_chunks(starting_date, ending_date)
+            tile_datasets: list[xr.Dataset] = []
+            for chunk_start, chunk_end in chunks:
+                start = _yyyymmdd(chunk_start)
+                end = _yyyymmdd(chunk_end)
+                for i, (tx1, ty1, tx2, ty2) in enumerate(tiles):
+                    logger.info("NASA POWER REST: tile %d/%d  %s→%s", i + 1, len(tiles), chunk_start, chunk_end)
+                    ds_tile = _download_tile(tx1, ty1, tx2, ty2, start, end, rest_vars, self.community)
+                    if ds_tile is not None:
+                        tile_datasets.append(_normalize_power_dataset(ds_tile, rest_vars))
+            if not tile_datasets:
+                raise RuntimeError("NASA POWER REST: no data downloaded for any tile/chunk.")
+            rest_ds = (
+                xr.combine_by_coords(tile_datasets, combine_attrs="override")
+                if len(tile_datasets) > 1
+                else tile_datasets[0]
+            )
+            datasets.append(rest_ds)
+
+        if not datasets:
+            raise RuntimeError("NASA POWER: no variables to download.")
 
         merged = (
-            xr.combine_by_coords(all_datasets, combine_attrs="override")
-            if len(all_datasets) > 1
-            else all_datasets[0]
+            xr.merge(datasets, compat="override", join="override")
+            if len(datasets) > 1
+            else datasets[0]
         )
         merged = rename_cf_vars(merged)
         encoding = {v: {"zlib": True, "complevel": 4} for v in merged.data_vars}
