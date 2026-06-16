@@ -219,6 +219,139 @@ def download_agera5(
 
 
 @mcp.tool()
+def download_soil(
+    output_folder: str,
+    country_code: str = "",
+    feature_name: str = "",
+    adm_level: int = 1,
+    bbox: list[float] | None = None,
+    variables: list[str] | None = None,
+    depths: list[str] | None = None,
+) -> dict[str, str]:
+    """Download SoilGrids GeoTIFF files for a region.
+
+    Downloads physical/chemical variables (clay, sand, bdod, etc.) at 250 m via
+    the ISRIC WCS API, and hydraulic variables (wv0010, wv0033, wv1500) at 1 km
+    via Google Cloud Storage.
+
+    Parameters
+    ----------
+    output_folder : str
+        Directory where GeoTIFFs will be saved.
+    country_code : str
+        ISO 3166-1 alpha-3 code (e.g. ``"GHA"``). Used for boundary lookup when
+        *bbox* is not provided.
+    feature_name : str
+        Admin unit name for a sub-national extent (e.g. ``"Zomba"``).
+    adm_level : int
+        Admin level for feature boundary lookup (default 1).
+    bbox : list[float] | None
+        ``[xmin, ymin, xmax, ymax]`` in EPSG:4326.  Takes precedence over
+        country_code / feature_name.
+    variables : list[str] | None
+        Soil variables to download.  Defaults to
+        ``["clay", "sand", "silt", "bdod", "cfvo", "nitrogen", "phh2o",
+           "soc", "wv0010", "wv0033", "wv1500"]``.
+    depths : list[str] | None
+        Depth intervals.  Defaults to
+        ``["0-5", "5-15", "15-30", "30-60", "60-100"]``.
+
+    Returns
+    -------
+    dict[str, str]
+        Mapping ``{filename: local_path}`` for every downloaded GeoTIFF.
+    """
+    if variables is None:
+        variables = ["clay", "sand", "silt", "bdod", "cfvo",
+                     "nitrogen", "phh2o", "soc", "wv0010", "wv0033", "wv1500"]
+    if depths is None:
+        depths = ["0-5", "5-15", "15-30", "30-60", "60-100"]
+
+    extent = _resolve_extent(country_code, feature_name, adm_level, bbox)
+
+    from aggeodata.ingestion.soil import SoilGridsDownloader
+    dl = SoilGridsDownloader(soil_layers=variables, depths=depths, output_folder=output_folder)
+    downloaded = dl.download(boundaries=extent)
+    return {str(k): str(v) for k, v in downloaded.items()}
+
+
+@mcp.tool()
+def build_climate_datacube(
+    config_path: str,
+) -> str:
+    """Assemble downloaded climate files into a multi-variable NetCDF datacube.
+
+    Reads the same YAML config used by the individual download_* tools.  All
+    variables listed in ``CLIMATE.variables`` must have been downloaded first.
+    The resulting file is saved as ``climate_<suffix>_<year_start>_<year_end>.nc``
+    in ``PATHS.output_path``.
+
+    Parameters
+    ----------
+    config_path : str
+        Path to an aggeodata YAML config (``task: datacube`` or any task value).
+
+    Returns
+    -------
+    str
+        Path to the saved NetCDF datacube.
+    """
+    from aggeodata.pipelines.datacube import run_datacube
+    return run_datacube(config_path)
+
+
+@mcp.tool()
+def build_soil_datacube(
+    soil_folder: str,
+    output_folder: str,
+    filename: str | None = None,
+    variables: list[str] | None = None,
+    reference_variable: str = "wv1500",
+    target_crs: str = "EPSG:4326",
+) -> str:
+    """Convert downloaded SoilGrids GeoTIFFs into a multi-depth NetCDF datacube.
+
+    Reads the GeoTIFF files produced by ``download_soil``, co-registers them
+    to the reference variable's grid, stacks them along a ``depth`` dimension,
+    and saves the result as a compressed NetCDF ready for ag-cube-cm simulations.
+
+    Parameters
+    ----------
+    soil_folder : str
+        Folder containing the downloaded SoilGrids GeoTIFFs.
+    output_folder : str
+        Directory where the output NetCDF will be saved.
+    filename : str | None
+        Output file name.  Defaults to ``soil_<folder_name>.nc``.
+    variables : list[str] | None
+        Variables to include.  Defaults to all standard DSSAT variables:
+        ``["clay", "sand", "silt", "bdod", "cfvo", "nitrogen", "phh2o",
+           "soc", "wv0010", "wv0033", "wv1500"]``.
+    reference_variable : str
+        Variable used as the spatial reference grid.  Default: ``"wv1500"``.
+    target_crs : str
+        Output CRS.  Default: ``"EPSG:4326"``.
+
+    Returns
+    -------
+    str
+        Path to the saved soil NetCDF datacube.
+    """
+    if variables is None:
+        variables = ["clay", "sand", "silt", "bdod", "cfvo",
+                     "nitrogen", "phh2o", "soc", "wv0010", "wv0033", "wv1500"]
+
+    from aggeodata.transform.soil_cube import SoilDataCubeBuilder
+    builder = SoilDataCubeBuilder(
+        data_folder=soil_folder,
+        variables=variables,
+        reference_variable=reference_variable,
+        target_crs=target_crs,
+    )
+    return builder.build_and_save(output_path=output_folder, filename=filename)
+
+
+@mcp.tool()
 def list_available_climate_indices() -> list[dict]:
     """List every supported climate index with its required variables and default parameters.
 
