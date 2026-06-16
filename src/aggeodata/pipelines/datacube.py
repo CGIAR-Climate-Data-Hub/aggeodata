@@ -131,13 +131,18 @@ def run_datacube(config_path: str | os.PathLike) -> str:
     logger.info("%d common dates (%s … %s)", len(common_dates), common_dates[0], common_dates[-1])
 
     # ------------------------------------------------------------------
-    # 3. Build per-date datasets and stack
+    # 3. Build per-date datasets and stack in batches
+    # Processing all dates at once causes linear memory growth (every dataset
+    # stays in RAM until the final xr.concat). Batching keeps peak memory
+    # proportional to batch_size × n_vars × spatial_pixels instead of
+    # n_dates × n_vars × spatial_pixels.
     # ------------------------------------------------------------------
     from ..ingestion.utils import resample_variables
     from ..ingestion.gis_functions import read_raster_data
 
-    ncores = cfg.GENERAL.ncores
+    ncores     = cfg.GENERAL.ncores
     target_crs = cfg.GENERAL.target_crs
+    batch_size = max(ncores * 8, 30)   # process ~30 dates at a time, free RAM between batches
 
     def _process_date(date_str: str) -> tuple[str, xr.Dataset]:
         ds = _build_single_date(
@@ -151,27 +156,45 @@ def run_datacube(config_path: str | os.PathLike) -> str:
         )
         return date_str, ds
 
-    results: dict[str, xr.Dataset] = {}
+    batch_slabs: list[xr.Dataset] = []   # one concat per batch — tiny list
+    succeeded_dates: list[str]    = []
+    n_skipped = 0
 
-    with ThreadPoolExecutor(max_workers=ncores) as pool:
-        futures = {pool.submit(_process_date, d): d for d in common_dates}
-        for future in tqdm(
-            as_completed(futures), total=len(common_dates),
-            desc="Stacking dates", unit="day",
-        ):
-            date_str = futures[future]
-            try:
-                _, ds_date = future.result()
-                results[date_str] = ds_date
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("Skipping date %s: %s", date_str, exc)
+    batches = [common_dates[i:i + batch_size] for i in range(0, len(common_dates), batch_size)]
 
-    # Reassemble in original chronological order
-    per_date      = [results[d] for d in common_dates if d in results]
-    succeeded_dates = [d for d in common_dates if d in results]
+    with tqdm(total=len(common_dates), desc="Stacking dates", unit="day") as pbar:
+        for batch in batches:
+            batch_results: dict[str, xr.Dataset] = {}
 
-    if not per_date:
+            with ThreadPoolExecutor(max_workers=ncores) as pool:
+                futures = {pool.submit(_process_date, d): d for d in batch}
+                for future in as_completed(futures):
+                    date_str = futures[future]
+                    try:
+                        _, ds_date = future.result()
+                        batch_results[date_str] = ds_date
+                    except Exception as exc:  # noqa: BLE001
+                        logger.warning("Skipping date %s: %s", date_str, exc)
+                        n_skipped += 1
+                    pbar.update(1)
+
+            # Concat this batch in chronological order and free per-date datasets
+            batch_dates = [d for d in batch if d in batch_results]
+            if batch_dates:
+                slab = xr.concat([batch_results[d] for d in batch_dates], dim="time")
+                slab = slab.load()   # materialise before freeing per-date refs
+                batch_slabs.append(slab)
+                succeeded_dates.extend(batch_dates)
+                del batch_results   # release per-date datasets immediately
+
+    if not batch_slabs:
         raise RuntimeError("All dates failed during loading. Check warnings above.")
+
+    if n_skipped:
+        logger.warning("%d dates skipped — check warnings above", n_skipped)
+
+    # Final concat across batch slabs (small list — one entry per batch)
+    per_date = batch_slabs
 
     # ------------------------------------------------------------------
     # 4. Concatenate along time
