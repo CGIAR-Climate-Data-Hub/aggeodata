@@ -171,6 +171,10 @@ class GeneralConfig(BaseModel):
         str,
         Field(default="EPSG:4326", description="Output CRS for the datacube (any PROJ/EPSG string)"),
     ] = "EPSG:4326"
+    target_resolution: Annotated[
+        Optional[float],
+        Field(default=None, description="Output spatial resolution in CRS units (degrees for EPSG:4326). None keeps native resolution."),
+    ] = None
 
 
 class PathsConfig(BaseModel):

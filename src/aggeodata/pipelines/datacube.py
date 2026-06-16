@@ -237,7 +237,22 @@ def run_datacube(config_path: str | os.PathLike) -> str:
             })
 
     # ------------------------------------------------------------------
-    # 5. Save
+    # 5. Upsample to target resolution (optional)
+    # ------------------------------------------------------------------
+    if cfg.GENERAL.target_resolution is not None:
+        import numpy as np
+        res = cfg.GENERAL.target_resolution
+        x_dim = cube.rio.x_dim
+        y_dim = cube.rio.y_dim
+        bounds = cube.rio.bounds()  # (xmin, ymin, xmax, ymax)
+        new_x = np.arange(bounds[0] + res / 2, bounds[2], res)
+        new_y = np.arange(bounds[3] - res / 2, bounds[1], -res)
+        cube = cube.interp({x_dim: new_x, y_dim: new_y}, method="linear")
+        cube = cube.rio.write_crs(cfg.GENERAL.target_crs)
+        logger.info("Resampled to %.4f° -> shape %s", res, dict(cube.sizes))
+
+    # ------------------------------------------------------------------
+    # 6. Save
     # ------------------------------------------------------------------
     ys = start[:4]
     ye = end[:4]
@@ -340,6 +355,10 @@ def _build_single_date(
             # AgERA5 NetCDFs have no embedded CRS — write EPSG:4326 before resampling
             if ds.rio.crs is None:
                 ds = ds.rio.write_crs("EPSG:4326")
+            # Rename internal variable to CF name to prevent duplicates in the merged cube
+            data_vars = [v for v in ds.data_vars if v not in ("crs", "spatial_ref")]
+            if data_vars and data_vars[0] != cf_var:
+                ds = ds.rename({data_vars[0]: cf_var})
             dict_xr[cf_var] = ds
 
     merged = resample_variables_fn(dict_xr, reference_variable=ref_var, target_crs=target_crs)
