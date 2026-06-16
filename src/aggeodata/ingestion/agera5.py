@@ -41,6 +41,9 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 AGERA5_VARIABLE_MAP: dict[str, dict] = {
+    "precipitation": {
+        "variable": "precipitation_flux"
+    },
     "wind_speed": {
         "variable": "10m_wind_speed",
         "statistic": ["24_hour_mean"],
