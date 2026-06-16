@@ -240,15 +240,8 @@ def run_datacube(config_path: str | os.PathLike) -> str:
     # 5. Upsample to target resolution (optional)
     # ------------------------------------------------------------------
     if cfg.GENERAL.target_resolution is not None:
-        import numpy as np
         res = cfg.GENERAL.target_resolution
-        x_dim = cube.rio.x_dim
-        y_dim = cube.rio.y_dim
-        bounds = cube.rio.bounds()  # (xmin, ymin, xmax, ymax)
-        new_x = np.arange(bounds[0] + res / 2, bounds[2], res)
-        new_y = np.arange(bounds[3] - res / 2, bounds[1], -res)
-        cube = cube.interp({x_dim: new_x, y_dim: new_y}, method="linear")
-        cube = cube.rio.write_crs(cfg.GENERAL.target_crs)
+        cube = cube.rio.reproject(cfg.GENERAL.target_crs, resolution=res)
         logger.info("Resampled to %.4f° -> shape %s", res, dict(cube.sizes))
 
     # ------------------------------------------------------------------
