@@ -337,6 +337,9 @@ def _build_single_date(
             for dim in ("time", "date", "band"):
                 if dim in ds.dims:
                     ds = ds.isel({dim: 0}, drop=True)
+            # AgERA5 NetCDFs have no embedded CRS — write EPSG:4326 before resampling
+            if ds.rio.crs is None:
+                ds = ds.rio.write_crs("EPSG:4326")
             dict_xr[cf_var] = ds
 
     merged = resample_variables_fn(dict_xr, reference_variable=ref_var, target_crs=target_crs)
