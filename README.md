@@ -5,9 +5,6 @@ Multi-source climate and soil data ingestion and datacube builder for agricultur
 Downloads daily gridded data from **CHIRPS**, **CHIRTS**, **AgERA5**, **NASA POWER**, and **SoilGrids**,
 then assembles them into analysis-ready NetCDF datacubes aligned to a common grid and CRS.
 
-**Repository:** https://github.com/anaguilarar/aggeodata  
-**Companion package (crop modeling):** https://github.com/anaguilarar/ag-cube-cm
-
 ---
 
 ## Data sources
