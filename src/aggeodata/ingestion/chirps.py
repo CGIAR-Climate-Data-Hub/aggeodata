@@ -77,8 +77,8 @@ class CHIRPSDownloader:
         starting_date: str,
         ending_date: str,
         output_folder: str,
-        ncores: int = 2,
-        polite_delay: float = 0.15,
+        ncores: int = 1,
+        polite_delay: float = 0.5,
     ) -> dict[str, str]:
         """Download CHIRPS data for the given extent and date range.
 
@@ -93,10 +93,10 @@ class CHIRPSDownloader:
         output_folder : str
             Root folder; one sub-folder per year is created automatically.
         ncores : int
-            Maximum concurrent day-downloads.  Hard-capped at 3 internally
-            to avoid HTTP 403 from the UCSB server.  Default: 4.
+            Maximum concurrent day-downloads.  Hard-capped at 1 internally
+            to avoid HTTP 403 from the UCSB server.  Default: 1.
         polite_delay : float
-            Per-worker sleep in seconds after each completed request.  Default: 0.1.
+            Per-worker sleep in seconds after each completed request.  Default: 0.5.
 
         Returns
         -------
@@ -118,7 +118,7 @@ class CHIRPSDownloader:
                 for day in days:
                     jobs.append((year, month, day))
 
-        workers = min(ncores, 2)  # avoid ban
+        workers = min(ncores, 1)  # UCSB now limits to 1 concurrent connection
         pbar = tqdm(total=len(jobs), desc="CHIRPS", unit="day")
 
         def _run(job: tuple[str, str, str]) -> None:

@@ -94,8 +94,8 @@ class CHIRTSDownloader:
         starting_date: str,
         ending_date: str,
         output_folder: str,
-        ncores: int = 2,
-        polite_delay: float = 0.2,
+        ncores: int = 1,
+        polite_delay: float = 0.5,
     ) -> dict[str, dict[str, str]]:
         """Download CHIRTS data for the given extent and date range.
 
@@ -111,9 +111,9 @@ class CHIRTSDownloader:
             Root folder; ``{output_folder}/{variable}/{year}/`` sub-folders
             are created automatically.
         ncores : int
-            Concurrent day-downloads (hard-capped at 3).  Default: 4.
+            Concurrent day-downloads (hard-capped at 1).  Default: 1.
         polite_delay : float
-            Per-worker sleep in seconds after each request.  Default: 0.15.
+            Per-worker sleep in seconds after each request.  Default: 0.5.
 
         Returns
         -------
@@ -124,7 +124,7 @@ class CHIRTSDownloader:
 
         Path(output_folder).mkdir(parents=True, exist_ok=True)
         yearly_dates = create_yearly_query(starting_date, ending_date)
-        workers = min(ncores, 2)
+        workers = min(ncores, 1)  # UCSB now limits to 1 concurrent connection
 
         jobs: list[tuple[str, str, str, str]] = []
         year_folders: dict[str, dict[str, str]] = {v: {} for v in self.variables}
