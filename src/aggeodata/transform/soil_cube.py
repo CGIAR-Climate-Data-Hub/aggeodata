@@ -411,11 +411,86 @@ class SoilDataCubeBuilder:
         return ds
 
 
+def reshape_flat_soil_cube(ds: xr.Dataset) -> xr.Dataset:
+    """Reshape a flat-format soil NetCDF into the 3-D depth-dimension format
+    expected by ag-cube-cm.
+
+    Flat format (produced by old pipelines or direct SoilGrids API downloads)
+    stores one variable per depth as ``{var}_{lo}-{hi}cm_mean``, e.g.
+    ``bdod_0-5cm_mean``, ``clay_5-15cm_mean``.
+
+    This function converts that to a dataset with a ``depth`` coordinate
+    dimension and clean variable names (``bdod``, ``clay``, …), which is the
+    format ``SoilDataCubeBuilder`` produces and ``ag-cube-cm`` expects.
+
+    Parameters
+    ----------
+    ds : xr.Dataset
+        Flat-format soil dataset.
+
+    Returns
+    -------
+    xr.Dataset
+        Dataset with a ``depth`` dimension and one variable per soil property.
+
+    Examples
+    --------
+    >>> flat = xr.open_dataset("soil_uruguay.nc")
+    >>> cube = reshape_flat_soil_cube(flat)
+    >>> cube  # dims: (depth, y, x)
+    """
+    import re
+
+    pattern = re.compile(r"^(.+?)_(\d+-\d+)cm_mean$")
+
+    var_by_depth: dict[str, dict[str, xr.DataArray]] = {}
+    for vname in ds.data_vars:
+        m = pattern.match(vname)
+        if m:
+            base, depth = m.group(1), m.group(2)
+            var_by_depth.setdefault(base, {})[depth] = ds[vname]
+
+    if not var_by_depth:
+        logger.warning("reshape_flat_soil_cube: no flat-format variables found — returning unchanged")
+        return ds
+
+    all_depths = sorted(
+        {d for depths in var_by_depth.values() for d in depths},
+        key=lambda d: int(d.split("-")[0]),
+    )
+
+    slices: list[xr.Dataset] = []
+    for depth in all_depths:
+        slice_vars: dict[str, xr.DataArray] = {}
+        for base, depth_dict in var_by_depth.items():
+            if depth in depth_dict:
+                da = depth_dict[depth].copy()
+                da.name = base
+                slice_vars[base] = da
+        slice_ds = xr.Dataset(slice_vars).expand_dims({"depth": [depth]})
+        slices.append(slice_ds)
+
+    cube = xr.concat(slices, dim="depth")
+
+    if "spatial_ref" in ds:
+        cube["spatial_ref"] = ds["spatial_ref"]
+
+    try:
+        import rioxarray  # noqa: F401
+        if ds.rio.crs is not None:
+            cube = cube.rio.write_crs(ds.rio.crs, inplace=True)
+    except Exception:
+        pass
+
+    return cube
+
+
 __all__ = [
     "SoilDataCubeBuilder",
     "create_depth_dimension",
     "calculate_rgf",
     "find_soil_textural_class_in_nparray",
     "get_layer_texture",
+    "reshape_flat_soil_cube",
     "TEXTURE_CLASSES",
 ]

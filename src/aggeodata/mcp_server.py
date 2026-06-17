@@ -352,6 +352,41 @@ def build_soil_datacube(
 
 
 @mcp.tool()
+def reshape_flat_soil_cube(
+    input_path: str,
+    output_path: str,
+) -> str:
+    """Reshape a flat-format soil NetCDF into the 3-D depth-dimension format
+    required by ag-cube-cm.
+
+    Old pipelines and direct SoilGrids API downloads produce a flat file where
+    each depth is a separate variable named ``{var}_{lo}-{hi}cm_mean`` (e.g.
+    ``bdod_0-5cm_mean``).  ag-cube-cm expects a single variable per property
+    with a ``depth`` coordinate dimension.
+
+    Parameters
+    ----------
+    input_path : str
+        Path to the flat-format soil NetCDF (e.g. ``soil_uruguay.nc``).
+    output_path : str
+        Path for the converted output NetCDF.
+
+    Returns
+    -------
+    str
+        Path to the saved converted file.
+    """
+    import xarray as xr
+    from aggeodata.transform.soil_cube import reshape_flat_soil_cube as _reshape
+
+    ds = xr.open_dataset(input_path)
+    cube = _reshape(ds)
+    encoding = {var: {"zlib": True} for var in cube.data_vars if var != "spatial_ref"}
+    cube.to_netcdf(output_path, encoding=encoding, engine="netcdf4")
+    return output_path
+
+
+@mcp.tool()
 def list_available_climate_indices() -> list[dict]:
     """List every supported climate index with its required variables and default parameters.
 
