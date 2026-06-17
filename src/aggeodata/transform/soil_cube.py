@@ -270,10 +270,18 @@ class SoilDataCubeBuilder:
     reference_variable : str
         Variable used as the spatial reference for co-registration.
     crs : str
-        Native CRS of the SoilGrids files.  Default: ``"ESRI:54052"``.
+        Native CRS of the SoilGrids WCS files (those without embedded CRS
+        metadata).  Must match the actual Interrupted Goode Homolosine
+        projection used by ISRIC.  Default: the explicit PROJ string
+        ``"+proj=igh ..."`` which is unambiguous across GDAL/pyproj versions.
+        ``"ESRI:54052"`` is NOT used because some GDAL builds mis-apply it,
+        producing bad extents and gaps in the assembled cube.
     target_crs : str | None
         Reproject the final cube to this CRS.  Default: ``"EPSG:4326"``.
     """
+
+    #: Authoritative PROJ string for SoilGrids WCS native CRS.
+    _IGH_CRS: str = "+proj=igh +lat_0=0 +lon_0=0 +datum=WGS84 +units=m +no_defs"
 
     def __init__(
         self,
@@ -281,7 +289,7 @@ class SoilDataCubeBuilder:
         variables: list[str],
         extent: list[float] | None = None,
         reference_variable: str = "wv1500",
-        crs: str = "ESRI:54052",
+        crs: str = "+proj=igh +lat_0=0 +lon_0=0 +datum=WGS84 +units=m +no_defs",
         target_crs: str | None = "EPSG:4326",
     ) -> None:
         self.data_folder = data_folder
