@@ -82,7 +82,7 @@ def download_chirps(
         Mapping ``{date_string: local_path}`` for every downloaded file.
     """
     extent = _resolve_extent(country_code, feature_name, adm_level, bbox)
-    ncores = min(ncores, 2)
+    ncores = min(ncores, 1)  # UCSB now limits to 1 concurrent connection
     from aggeodata.ingestion.chirps import CHIRPSDownloader
     dl = CHIRPSDownloader()
     return dl.download(
@@ -117,7 +117,7 @@ def download_chirts(
         ``"era5"`` (default, 1983–present) or ``"chirts"`` (1983–2016 only).
     """
     extent = _resolve_extent(country_code, feature_name, adm_level, bbox)
-    ncores = min(ncores, 2)
+    ncores = min(ncores, 1)  # UCSB now limits to 1 concurrent connection
     from aggeodata.ingestion.chirts import CHIRTSDownloader
     dl = CHIRTSDownloader(variables=variables, source=chirts_source)
     return dl.download(
@@ -216,6 +216,80 @@ def download_agera5(
         aoi_extent=extent,
         ncores=ncores,
     )
+
+
+@mcp.tool()
+def download_gee(
+    variables: list[str],
+    starting_date: str,
+    ending_date: str,
+    output_folder: str,
+    country_code: str = "",
+    feature_name: str = "",
+    adm_level: int = 1,
+    bbox: list[float] | None = None,
+    project: str | None = None,
+    ncores: int = 4,
+) -> dict[str, dict[str, str]]:
+    """Download climate data via Google Earth Engine (no UCSB rate limits).
+
+    Routes each CF variable to its default GEE collection automatically:
+
+    * ``pr``                                → ``UCSB-CHG/CHIRPS/DAILY`` (1981–present)
+    * ``tasmax``, ``tasmin``, ``tas``,
+      ``tdps``, ``rsds``, ``vp``, ``etr``  → ``projects/climate-engine-pro/assets/ce-ag-era5-v2/daily``
+
+    Requires ``earthengine-api`` and a prior ``earthengine authenticate`` run.
+
+    Parameters
+    ----------
+    variables : list[str]
+        CF variable names, e.g. ``["pr", "tasmax", "rsds", "etr"]``.
+    starting_date, ending_date : str
+        ISO 8601 date strings ``"YYYY-MM-DD"``.
+    output_folder : str
+        Root directory; ``{output_folder}/{variable}/{year}/`` sub-folders are
+        created automatically.
+    project : str | None
+        GEE cloud project ID (e.g. ``"my-gee-project"``).  Required for
+        post-2023 accounts; omit for legacy accounts.
+    ncores : int
+        Concurrent day-downloads.  Default: 4 (GEE has no UCSB ban risk).
+
+    Returns
+    -------
+    dict[str, dict[str, str]]
+        ``{cf_variable: {year: year_folder_path}}``
+    """
+    from aggeodata.ingestion.gee import GEEDownloader
+    from aggeodata.pipelines.download import _CF_TO_GEE_DATASET
+
+    extent = _resolve_extent(country_code, feature_name, adm_level, bbox)
+
+    # Group variables by target dataset to minimise GEE initialisation calls
+    dataset_vars: dict[str, list[str]] = {}
+    for cf_var in variables:
+        dataset_id = _CF_TO_GEE_DATASET.get(cf_var)
+        if dataset_id is None:
+            raise ValueError(
+                f"No default GEE dataset for CF variable '{cf_var}'. "
+                f"Supported variables: {sorted(_CF_TO_GEE_DATASET)}"
+            )
+        dataset_vars.setdefault(dataset_id, []).append(cf_var)
+
+    results: dict[str, dict[str, str]] = {}
+    for dataset_id, ds_vars in dataset_vars.items():
+        dl = GEEDownloader(dataset_id=dataset_id, variables=ds_vars, project=project)
+        paths = dl.download(
+            extent=extent,
+            starting_date=starting_date,
+            ending_date=ending_date,
+            output_folder=output_folder,
+            ncores=ncores,
+        )
+        results.update(paths)
+
+    return results
 
 
 @mcp.tool()

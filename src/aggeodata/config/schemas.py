@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 # ---------------------------------------------------------------------------
 
 _VALID_SOURCES: frozenset[str] = frozenset(
-    {"chirps", "chirts", "agera5", "nasa_power"}
+    {"chirps", "chirts", "agera5", "nasa_power", "gee"}
 )
 
 # CF variables that each source can provide
@@ -29,6 +29,8 @@ _SOURCE_VARIABLES: dict[str, frozenset[str]] = {
         "hurs_06", "hurs_09", "hurs_12", "hurs_15", "hurs_18",
     }),
     "nasa_power": frozenset({"pr", "tasmax", "tasmin", "tas", "rsds", "hurs", "sfcWind"}),
+    # GEE covers variables from CHIRPS, CHIRTS, and AgERA5 via Climate Engine
+    "gee":        frozenset({"pr", "tasmax", "tasmin", "tas", "tdps", "rsds", "vp", "etr"}),
 }
 
 
@@ -41,7 +43,7 @@ class VariableConfig(BaseModel):
 
     source: Annotated[
         str,
-        Field(description="Data provider: chirps | chirts | agera5 | nasa_power"),
+        Field(description="Data provider: chirps | chirts | agera5 | nasa_power | gee"),
     ]
     chirts_source: Annotated[
         Literal["era5", "chirts"],
@@ -54,6 +56,25 @@ class VariableConfig(BaseModel):
     nasa_power_param: Annotated[
         str | None,
         Field(default=None, description="Override default CF→NASA POWER parameter code"),
+    ] = None
+    gee_dataset_id: Annotated[
+        str | None,
+        Field(
+            default=None,
+            description=(
+                "GEE ImageCollection ID — only used when source=gee. "
+                "Defaults: pr→UCSB-CHG/CHIRPS/DAILY, tasmax/tasmin→UCSB-CHG/CHIRTS/DAILY. "
+                "For AgERA5 set to "
+                "'projects/climate-engine-pro/assets/ce-ag-era5-v2/daily'."
+            ),
+        ),
+    ] = None
+    gee_project: Annotated[
+        str | None,
+        Field(
+            default=None,
+            description="GEE cloud project for ee.Initialize() — only used when source=gee",
+        ),
     ] = None
 
     @field_validator("source", mode="before")

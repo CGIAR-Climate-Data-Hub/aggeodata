@@ -66,6 +66,20 @@ _CF_TO_NASA_POWER_PARAM: dict[str, str] = {
 # CF variables that require the REST backend (not in S3 Zarr)
 _NASA_POWER_REST_ONLY: frozenset[str] = frozenset({"rsds"})
 
+# CF name → default GEE ImageCollection ID
+_CF_TO_GEE_DATASET: dict[str, str] = {
+    # CHIRPS covers 1981–present
+    "pr":     "UCSB-CHG/CHIRPS/DAILY",
+    # AgERA5 CE-Pro for temperature — covers 1979–present (CHIRTS/DAILY ends 2016)
+    "tasmax": "projects/climate-engine-pro/assets/ce-ag-era5-v2/daily",
+    "tasmin": "projects/climate-engine-pro/assets/ce-ag-era5-v2/daily",
+    "tas":    "projects/climate-engine-pro/assets/ce-ag-era5-v2/daily",
+    "tdps":   "projects/climate-engine-pro/assets/ce-ag-era5-v2/daily",
+    "rsds":   "projects/climate-engine-pro/assets/ce-ag-era5-v2/daily",
+    "vp":     "projects/climate-engine-pro/assets/ce-ag-era5-v2/daily",
+    "etr":    "projects/climate-engine-pro/assets/ce-ag-era5-v2/daily",
+}
+
 
 # ---------------------------------------------------------------------------
 # Main entry point
@@ -170,6 +184,9 @@ def _download_variable(
     if source == "nasa_power":
         return _download_nasa_power(cf_var, var_cfg, out_folder, extent, start, end, cfg)
 
+    if source == "gee":
+        return _download_gee(cf_var, var_cfg, out_folder, extent, start, end, cfg)
+
     raise ValueError(f"Unknown source '{source}' for variable '{cf_var}'")
 
 
@@ -257,6 +274,31 @@ def _download_nasa_power(cf_var, var_cfg, out_folder, extent, start, end, cfg):
         output_folder=out_folder,
     )
     return {"all": nc_path}
+
+
+def _download_gee(cf_var, var_cfg, out_folder, extent, start, end, cfg):
+    from ..ingestion.gee import GEEDownloader
+    dataset_id = var_cfg.gee_dataset_id or _CF_TO_GEE_DATASET.get(cf_var)
+    if dataset_id is None:
+        raise ValueError(
+            f"No default GEE dataset for CF variable '{cf_var}'. "
+            f"Set gee_dataset_id explicitly in the config. "
+            f"For AgERA5 use: 'projects/climate-engine-pro/assets/ce-ag-era5-v2/daily'."
+        )
+    dl = GEEDownloader(
+        dataset_id=dataset_id,
+        variables=[cf_var],
+        project=var_cfg.gee_project,
+    )
+    paths = dl.download(
+        extent=extent,
+        starting_date=start,
+        ending_date=end,
+        output_folder=out_folder,
+        ncores=cfg.GENERAL.ncores,
+    )
+    # Flatten {variable: {year: folder}} → {year: folder}
+    return {yr: folder for var_paths in paths.values() for yr, folder in var_paths.items()}
 
 
 # ---------------------------------------------------------------------------

@@ -4,6 +4,7 @@ from .chirps import CHIRPSDownloader
 from .chirts import CHIRTSDownloader
 from .agera5 import AgEra5Downloader
 from .nasa_power import NASAPowerDownloader, NASAPowerS3Downloader
+from .gee import GEEDownloader
 from .climate import WeatherDownloadOrchestrator
 from .soil import SoilGridsDownloader
 from .boundaries import get_admin_boundary, list_admin_units
@@ -16,6 +17,7 @@ __all__ = [
     "AgEra5Downloader",
     "NASAPowerDownloader",
     "NASAPowerS3Downloader",
+    "GEEDownloader",
     # climate — orchestrator
     "WeatherDownloadOrchestrator",
     # soil
