@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal, List, Optional, Dict, Any
 from pathlib import Path
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 # ---------------------------------------------------------------------------
@@ -158,15 +158,37 @@ class IngestionClimateConfig(BaseModel):
 
 
 class SoilConfig(BaseModel):
+    """SoilGrids download + cube configuration.
+
+    Accepts both the legacy `layers` key and the canonical `variables` key
+    (variable names is the harmonized term across climate + soil).
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
     enabled: bool = False
-    layers: Annotated[
+    variables: Annotated[
         list[str],
-        Field(default=["clay", "sand"], description="SoilGrids variable names"),
-    ] = ["clay", "sand"]
+        Field(
+            default_factory=lambda: ["clay", "sand"],
+            alias="layers",
+            description="SoilGrids variable names (e.g. clay, sand, soc, bdod, wv1500)",
+        ),
+    ]
     depths: Annotated[
         list[str],
-        Field(default=["0-5"], description="Depth intervals, e.g. '0-5', '5-15'"),
-    ] = ["0-5"]
+        Field(
+            default_factory=lambda: ["0-5"],
+            description="Depth intervals, e.g. '0-5', '5-15', '15-30', '30-60', '60-100'",
+        ),
+    ]
+    reference_variable: Annotated[
+        str,
+        Field(
+            default="wv1500",
+            description="CF/SoilGrids variable used as the spatial reference when building the cube.",
+        ),
+    ]
 
 
 class GeneralConfig(BaseModel):
@@ -202,39 +224,48 @@ class PathsConfig(BaseModel):
     output_path: Annotated[str, Field(default="data/raw/")] = "data/raw/"
 
 class AgeodataConfig(BaseModel):
-    """Complete aggeodata YAML configuration."""
+    """Complete aggeodata YAML configuration.
 
-    DATES: DatesConfig
-    SPATIAL_INFO: SpatialConfig
-    CLIMATE: IngestionClimateConfig
-    SOIL: SoilConfig = SoilConfig()
-    GENERAL: GeneralConfig = GeneralConfig()
-    PATHS: PathsConfig = PathsConfig()
+    Canonical section keys are lowercase (``dates``, ``spatial_info``,
+    ``climate``, ``soil``, ``general``, ``paths``).  The legacy UPPERCASE
+    keys (``DATES``, ``SPATIAL_INFO``, ``CLIMATE``, ``SOIL``, ``GENERAL``,
+    ``PATHS``) are accepted as input aliases for back-compat; new configs
+    should use the lowercase form.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    dates: Annotated[DatesConfig, Field(alias="DATES")]
+    spatial_info: Annotated[SpatialConfig, Field(alias="SPATIAL_INFO")]
+    climate: Annotated[IngestionClimateConfig, Field(alias="CLIMATE")]
+    soil: Annotated[SoilConfig, Field(default_factory=SoilConfig, alias="SOIL")]
+    general: Annotated[GeneralConfig, Field(default_factory=GeneralConfig, alias="GENERAL")]
+    paths: Annotated[PathsConfig, Field(default_factory=PathsConfig, alias="PATHS")]
 
     @model_validator(mode="after")
     def reference_variable_in_climate(self) -> AgeodataConfig:
-        ref = self.GENERAL.reference_variable
-        if ref and ref not in self.CLIMATE.variables:
+        ref = self.general.reference_variable
+        if ref and ref not in self.climate.variables:
             raise ValueError(
-                f"reference_variable '{ref}' is not listed under CLIMATE.variables. "
-                f"Available: {list(self.CLIMATE.variables)}"
+                f"reference_variable '{ref}' is not listed under climate.variables. "
+                f"Available: {list(self.climate.variables)}"
             )
         return self
 
     def get_extent(self) -> list[float]:
         """Return [xmin, ymin, xmax, ymax] from spatial_file or extent."""
-        if self.SPATIAL_INFO.spatial_file:
+        if self.spatial_info.spatial_file:
             import geopandas as gpd
-            gdf = gpd.read_file(self.SPATIAL_INFO.spatial_file)
+            gdf = gpd.read_file(self.spatial_info.spatial_file)
             b = gdf.total_bounds  # (xmin, ymin, xmax, ymax)
             return [float(b[0]), float(b[1]), float(b[2]), float(b[3])]
-        return list(self.SPATIAL_INFO.extent)
+        return list(self.spatial_info.extent)
 
     def var_folder(self, cf_var: str) -> str:
         """Return the download output folder for a CF variable."""
         import os
-        name = f"{cf_var}_{self.GENERAL.suffix}_raw" if self.GENERAL.suffix else f"{cf_var}_raw"
-        return os.path.join(self.PATHS.output_path, name)
+        name = f"{cf_var}_{self.general.suffix}_raw" if self.general.suffix else f"{cf_var}_raw"
+        return os.path.join(self.paths.output_path, name)
 
 
 class ClimateIndex(BaseModel):

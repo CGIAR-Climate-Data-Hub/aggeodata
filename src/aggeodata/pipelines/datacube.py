@@ -65,10 +65,10 @@ def run_datacube(config_path: str | os.PathLike) -> str:
         Path to the saved NetCDF datacube.
     """
     cfg = load_config(config_path)
-    start  = cfg.DATES.starting_date
-    end    = cfg.DATES.ending_date
-    ref_var = cfg.GENERAL.reference_variable
-    suffix  = cfg.GENERAL.suffix
+    start  = cfg.dates.starting_date
+    end    = cfg.dates.ending_date
+    ref_var = cfg.general.reference_variable
+    suffix  = cfg.general.suffix
 
     logger.info("Building datacube  |  ref=%s  |  %s -> %s", ref_var, start, end)
 
@@ -78,7 +78,7 @@ def run_datacube(config_path: str | os.PathLike) -> str:
     var_files: dict[str, dict[str, str]] = {}
     nasa_power_ds: dict[str, xr.Dataset] = {}   # multi-day NC opened once
 
-    for cf_var, var_cfg in cfg.CLIMATE.variables.items():
+    for cf_var, var_cfg in cfg.climate.variables.items():
         var_folder = cfg.var_folder(cf_var)
         source = var_cfg.source
 
@@ -140,8 +140,8 @@ def run_datacube(config_path: str | os.PathLike) -> str:
     from ..ingestion.utils import resample_variables
     from ..ingestion.gis_functions import read_raster_data
 
-    ncores     = cfg.GENERAL.ncores
-    target_crs = cfg.GENERAL.target_crs
+    ncores     = cfg.general.ncores
+    target_crs = cfg.general.target_crs
     batch_size = max(ncores * 8, 30)   # process ~30 dates at a time, free RAM between batches
 
     def _process_date(date_str: str) -> tuple[str, xr.Dataset]:
@@ -262,9 +262,9 @@ def run_datacube(config_path: str | os.PathLike) -> str:
     # ------------------------------------------------------------------
     # 5. Upsample to target resolution (optional)
     # ------------------------------------------------------------------
-    if cfg.GENERAL.target_resolution is not None:
-        res = cfg.GENERAL.target_resolution
-        cube = cube.rio.reproject(cfg.GENERAL.target_crs, resolution=res)
+    if cfg.general.target_resolution is not None:
+        res = cfg.general.target_resolution
+        cube = cube.rio.reproject(cfg.general.target_crs, resolution=res)
         logger.info("Resampled to %.4f° -> shape %s", res, dict(cube.sizes))
 
     # ------------------------------------------------------------------
@@ -273,8 +273,8 @@ def run_datacube(config_path: str | os.PathLike) -> str:
     ys = start[:4]
     ye = end[:4]
     fname = f"climate_{suffix}_{ys}_{ye}.nc" if suffix else f"climate_{ys}_{ye}.nc"
-    out_path = os.path.join(cfg.PATHS.output_path, fname)
-    Path(cfg.PATHS.output_path).mkdir(parents=True, exist_ok=True)
+    out_path = os.path.join(cfg.paths.output_path, fname)
+    Path(cfg.paths.output_path).mkdir(parents=True, exist_ok=True)
 
     data_vars = [v for v in cube.data_vars if v != "spatial_ref"]
     encoding = {v: {"zlib": True, "complevel": 4} for v in data_vars}

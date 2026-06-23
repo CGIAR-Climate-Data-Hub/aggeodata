@@ -103,16 +103,16 @@ def run_download(config_path: str | os.PathLike) -> dict[str, dict]:
     results: dict[str, dict] = {}
 
     extent = cfg.get_extent()
-    start  = cfg.DATES.starting_date
-    end    = cfg.DATES.ending_date
+    start  = cfg.dates.starting_date
+    end    = cfg.dates.ending_date
 
     logger.info("aggeodata download  |  %s -> %s  |  extent: %s", start, end, extent)
-    logger.info("Output root: %s", cfg.PATHS.output_path)
+    logger.info("Output root: %s", cfg.paths.output_path)
 
     # ------------------------------------------------------------------
     # Climate variables
     # ------------------------------------------------------------------
-    for cf_var, var_cfg in cfg.CLIMATE.variables.items():
+    for cf_var, var_cfg in cfg.climate.variables.items():
         out_folder = cfg.var_folder(cf_var)
         Path(out_folder).mkdir(parents=True, exist_ok=True)
         source = var_cfg.source
@@ -138,14 +138,14 @@ def run_download(config_path: str | os.PathLike) -> dict[str, dict]:
     # ------------------------------------------------------------------
     # Soil layers
     # ------------------------------------------------------------------
-    if cfg.SOIL.enabled:
-        soil_folder = os.path.join(cfg.PATHS.output_path, f"soil_{cfg.GENERAL.suffix}" if cfg.GENERAL.suffix else "soil")
+    if cfg.soil.enabled:
+        soil_folder = os.path.join(cfg.paths.output_path, f"soil_{cfg.general.suffix}" if cfg.general.suffix else "soil")
         logger.info("Downloading soil layers -> %s", soil_folder)
         try:
             from ..ingestion.soil import SoilGridsDownloader
             dl = SoilGridsDownloader(
-                soil_layers=cfg.SOIL.layers,
-                depths=cfg.SOIL.depths,
+                soil_layers=cfg.soil.variables,
+                depths=cfg.soil.depths,
                 output_folder=soil_folder,
             )
             written = dl.download(boundaries=extent)
@@ -198,7 +198,7 @@ def _download_chirps(out_folder, extent, start, end, cfg):
         starting_date=start,
         ending_date=end,
         output_folder=out_folder,
-        ncores=cfg.GENERAL.ncores,
+        ncores=cfg.general.ncores,
     )
 
 
@@ -216,7 +216,7 @@ def _download_chirts(cf_var, var_cfg, out_folder, extent, start, end, cfg):
         starting_date=start,
         ending_date=end,
         output_folder=out_folder,
-        ncores=cfg.GENERAL.ncores,
+        ncores=cfg.general.ncores,
     )
     # Flatten {variable: {year: folder}} → {year: folder}
     return {yr: folder for var_paths in paths.values() for yr, folder in var_paths.items()}
@@ -231,7 +231,7 @@ def _download_agera5(cf_var, var_cfg, out_folder, extent, start, end, cfg):
             f"Set agera5_key explicitly in the config."
         )
     spec = AGERA5_VARIABLE_MAP[agera5_key]
-    dl = AgEra5Downloader(version=cfg.GENERAL.agera5_version)
+    dl = AgEra5Downloader(version=cfg.general.agera5_version)
     return dl.download(
         variable=spec["variable"],
         statistic=spec.get("statistic"),
@@ -240,7 +240,7 @@ def _download_agera5(cf_var, var_cfg, out_folder, extent, start, end, cfg):
         ending_date=end,
         output_folder=out_folder,
         aoi_extent=extent,
-        ncores=cfg.GENERAL.ncores,
+        ncores=cfg.general.ncores,
     )
 
 
@@ -254,7 +254,7 @@ def _download_nasa_power(cf_var, var_cfg, out_folder, extent, start, end, cfg):
         )
 
     # rsds (ALLSKY_SFC_SW_DWN) is not in the S3 Zarr store — force REST
-    backend = cfg.GENERAL.nasa_power_backend
+    backend = cfg.general.nasa_power_backend
     if cf_var in _NASA_POWER_REST_ONLY:
         if backend == "s3":
             logger.info(
@@ -295,7 +295,7 @@ def _download_gee(cf_var, var_cfg, out_folder, extent, start, end, cfg):
         starting_date=start,
         ending_date=end,
         output_folder=out_folder,
-        ncores=cfg.GENERAL.ncores,
+        ncores=cfg.general.ncores,
     )
     # Flatten {variable: {year: folder}} → {year: folder}
     return {yr: folder for var_paths in paths.values() for yr, folder in var_paths.items()}
