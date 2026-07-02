@@ -89,9 +89,9 @@ all = [
 
 
 [project.urls]
-Homepage      = "https://github.com/anaguilarar/aggeodata"
-Repository    = "https://github.com/anaguilarar/aggeodata"
-"Bug Tracker" = "https://github.com/anaguilarar/aggeodata/issues"
+Homepage      = "https://github.com/CGIAR-Climate-Data-Hub/aggeodata"
+Repository    = "https://github.com/CGIAR-Climate-Data-Hub/aggeodata"
+"Bug Tracker" = "https://github.com/CGIAR-Climate-Data-Hub/aggeodata/issues"
 
 
 [tool.setuptools]
