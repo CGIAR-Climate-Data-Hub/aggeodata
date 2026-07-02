@@ -25,17 +25,17 @@ Install directly from GitHub:
 
 ```bash
 # Core + download extras (required for data download)
-pip install "aggeodata[download,mcp] @ git+https://github.com/anaguilarar/aggeodata.git"
+pip install "aggeodata[download,mcp] @ git+https://github.com/CGIAR-Climate-Data-Hub/aggeodata.git"
 ```
 
 Optional extras:
 
 ```bash
 # Climate indices (xclim)
-pip install "aggeodata[download,indices] @ git+https://github.com/anaguilarar/aggeodata.git"
+pip install "aggeodata[download,indices] @ git+https://github.com/CGIAR-Climate-Data-Hub/aggeodata.git"
 
 # Everything
-pip install "aggeodata[all] @ git+https://github.com/anaguilarar/aggeodata.git"
+pip install "aggeodata[all] @ git+https://github.com/CGIAR-Climate-Data-Hub/aggeodata.git"
 ```
 
 Requires Python >= 3.10.
@@ -203,14 +203,14 @@ sds = xr.open_dataset("soil_hnd_small.nc")
 ## Use with ag-cube-cm (crop modeling)
 
 Once you have weather and soil datacubes, pass them directly to
-[ag-cube-cm](https://github.com/anaguilarar/ag-cube-cm) to run DSSAT pixel-by-pixel:
+[ag-cube-cm](https://github.com/CGIAR-Climate-Data-Hub/ag-cube-cm) to run DSSAT pixel-by-pixel:
 
 ```bash
-pip install "ag-cube-cm[models] @ git+https://github.com/anaguilarar/ag-cube-cm.git"
+pip install "ag-cube-cm[models] @ git+https://github.com/CGIAR-Climate-Data-Hub/ag-cube-cm.git"
 ag-cube-cm run config.yaml
 ```
 
-See the [ag-cube-cm README](https://github.com/anaguilarar/ag-cube-cm) and the
+See the [ag-cube-cm README](https://github.com/CGIAR-Climate-Data-Hub/ag-cube-cm) and the
 [Spatial Crop Modeler skill](https://cgiar-climate-data-hub.github.io/skills/skills/spatial-crop-modeler/)
 for a full end-to-end workflow.
 
