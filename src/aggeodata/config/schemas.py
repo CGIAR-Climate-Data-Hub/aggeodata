@@ -295,6 +295,69 @@ class GeneralConfig(BaseModel):
         Optional[float],
         Field(default=None, description="Output spatial resolution in CRS units (degrees for EPSG:4326). None keeps native resolution."),
     ] = None
+    output_format: Annotated[
+        Literal["netcdf", "zarr", "both"],
+        Field(
+            default="netcdf",
+            description=(
+                "Datacube output. 'netcdf' (default) writes a compressed .nc; "
+                "'zarr' writes a Zarr v3 store chunked and quantised like the "
+                "GeoSPOptimizer archives; 'both' writes each."
+            ),
+        ),
+    ] = "netcdf"
+    zarr_codec: Annotated[
+        Literal["blosc", "zstd"],
+        Field(
+            default="blosc",
+            description=(
+                "Zarr compressor. 'blosc' (zstd-5 + bitshuffle) is smallest; "
+                "'zstd' is plain Zstandard, which GDAL/QGIS can read."
+            ),
+        ),
+    ] = "blosc"
+    zarr_quantize: Annotated[
+        bool,
+        Field(
+            default=True,
+            description=(
+                "Store Zarr variables as scaled integers (0.1 K / 0.1 mm / 10 kJ "
+                "quanta, far finer than the products' own uncertainty), roughly "
+                "halving the payload. False writes float32 — larger but exact. "
+                "A variable whose range does not fit falls back to float32 either way."
+            ),
+        ),
+    ] = True
+    zarr_sharded: Annotated[
+        bool,
+        Field(
+            default=False,
+            description=(
+                "Bundle Zarr chunks into shards. Cuts file count for very large "
+                "cubes, but GDAL cannot read sharded stores, which rules out "
+                "QGIS and R's stars/terra."
+            ),
+        ),
+    ] = False
+    zarr_chunks: Annotated[
+        Optional[List[int]],
+        Field(
+            default=None,
+            description=(
+                "Zarr chunk shape as [time, y, x]. None (default) uses the "
+                "reference geometry [128, 100, 100], clamped to the cube's shape."
+            ),
+        ),
+    ] = None
+
+    @field_validator("zarr_chunks")
+    @classmethod
+    def validate_zarr_chunks(cls, v):
+        if v is None:
+            return v
+        if len(v) != 3 or any(c < 1 for c in v):
+            raise ValueError("zarr_chunks must be 3 positive integers: [time, y, x]")
+        return v
 
 
 class PathsConfig(BaseModel):

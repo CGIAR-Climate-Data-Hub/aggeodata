@@ -103,6 +103,14 @@ SOIL:
 #   agera5 variables; every other source ignores it.
 #   The legacy name 'use_huggingface' is still accepted.
 # ---------------------------------------------------------------------------
+#
+#   output_format controls how the datacube is written:
+#     "netcdf" (default) — one compressed .nc file
+#     "zarr"             — a Zarr v3 store, chunked/quantised like the
+#                          GeoSPOptimizer archives (~2x smaller than NetCDF,
+#                          and sliceable without reading the whole file)
+#     "both"             — write each
+# ---------------------------------------------------------------------------
 GENERAL:
   suffix:              "hnd_test"   # appended to output folder names
   ncores:              2            # parallel download threads
@@ -111,6 +119,13 @@ GENERAL:
   agera5_version:      "2_0"       # AgERA5 product version  "1_1" | "2_0"
   nasa_power_backend:  "s3"        # "s3" (Zarr, fast) | "rest" (tile API)
   use_zarr:            true        # true = Zarr datacubes | false = official endpoints
+
+  # --- datacube output ---
+  output_format:       "netcdf"    # "netcdf" | "zarr" | "both"
+  zarr_codec:          "zstd"     # "blosc" (smallest) | "zstd" (GDAL/QGIS can read it)
+  zarr_quantize:       true        # scaled ints (0.1 K / 0.1 mm / 10 kJ) | false = float32
+  zarr_sharded:        false       # true cuts file count but GDAL cannot read sharded stores
+  zarr_chunks:         null        # [time, y, x]; null = [128, 100, 100] clamped to the cube
 
 PATHS:
   output_path: "data/raw/"

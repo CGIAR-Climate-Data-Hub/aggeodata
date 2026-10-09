@@ -308,6 +308,52 @@ sds = xr.open_dataset("soil_hnd_small.nc")
 # dims: depth x y | vars: clay, sand, silt, bdod, ...
 ```
 
+### Exporting the climate cube as Zarr
+
+`run_datacube` can also write a **Zarr v3 store** laid out like the
+[GeoSPOptimizer](https://github.com/CGIAR-Climate-Data-Hub) archives — same chunk
+geometry, codec and integer quantisation — so a cube built here matches the published
+CHIRPS / CHIRTS / AgERA5 datacubes and can be sliced without reading the whole file:
+
+```yaml
+GENERAL:
+  output_format: "zarr"     # "netcdf" (default) | "zarr" | "both"
+  zarr_codec:    "blosc"    # "blosc" (smallest) | "zstd" (GDAL/QGIS can read it)
+  zarr_quantize: true       # scaled integers | false = float32
+  zarr_sharded:  false
+  zarr_chunks:   null       # [time, y, x]; null = [128, 100, 100] clamped to the cube
+```
+
+```python
+from aggeodata.transform.zarr_export import export_datacube_to_zarr, open_cube
+
+export_datacube_to_zarr(cube, "climate_2020_2022.zarr")
+ds = open_cube("climate_2020_2022.zarr")   # decoded to float32, CRS intact
+```
+
+**What the store contains** — `time` as int32 days since 1980-01-01, `lat`/`lon` as
+float64 with CF axis attributes, a scalar `spatial_ref` carrying the CRS WKT, and one
+array per variable with `scale_factor` / `add_offset` / `_FillValue`. Chunks default to
+`(128, 100, 100)`, clamped down to the cube's own shape.
+
+**Quantisation** halves the payload. Quanta follow the reference project — 0.1 for
+temperature and precipitation, 10 kJ for solar radiation — all far finer than the
+products' own uncertainty (ERA5 2 m temperature carries an RMSE of 1–2 K against
+observations). A variable whose range would not fit its integer type falls back to
+float32 automatically rather than being clipped. Set `zarr_quantize: false` for exact
+float32 throughout.
+
+**Interoperability** — measured with GDAL 3.12:
+
+| Store | GDAL / QGIS / R `terra` |
+|-------|-------------------------|
+| `zarr_codec: zstd`, unsharded | reads fine, CRS intact |
+| `zarr_codec: blosc` (default) | `blosc compressor not available` |
+| `zarr_sharded: true` | `Unsupported codec: sharding_indexed` |
+
+The default is `blosc` for consistency with the published archives. **Switch to
+`zstd` and leave sharding off if you need to open the cube outside Python.**
+
 ---
 
 ## Use with ag-cube-cm (crop modeling)
@@ -343,6 +389,7 @@ aggeodata/
 │   │   └── datacube.py  # run_datacube(config_path)
 │   └── transform/       # Datacube assembly
 │       ├── climate_cube.py
+│       ├── zarr_export.py   # Zarr v3 datacube export
 │       └── soil_cube.py  # SoilDataCubeBuilder
 ├── options/             # Example YAML configs
 └── tests/

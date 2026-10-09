@@ -272,17 +272,52 @@ def run_datacube(config_path: str | os.PathLike) -> str:
     # ------------------------------------------------------------------
     ys = start[:4]
     ye = end[:4]
-    fname = f"climate_{suffix}_{ys}_{ye}.nc" if suffix else f"climate_{ys}_{ye}.nc"
-    out_path = os.path.join(cfg.paths.output_path, fname)
+    stem = f"climate_{suffix}_{ys}_{ye}" if suffix else f"climate_{ys}_{ye}"
     Path(cfg.paths.output_path).mkdir(parents=True, exist_ok=True)
+    fmt = cfg.general.output_format
 
+    zarr_path: str | None = None
+    if fmt in {"zarr", "both"}:
+        zarr_path = _save_zarr(cube, os.path.join(cfg.paths.output_path, stem + ".zarr"), cfg)
+
+    if fmt == "zarr":
+        _log_cube_summary(cube, zarr_path)
+        return zarr_path
+
+    out_path = os.path.join(cfg.paths.output_path, stem + ".nc")
     data_vars = [v for v in cube.data_vars if v != "spatial_ref"]
     encoding = {v: {"zlib": True, "complevel": 4} for v in data_vars}
     cube.to_netcdf(out_path, encoding=encoding, engine="netcdf4")
     logger.info("Datacube saved -> %s", out_path)
 
     _log_cube_summary(cube, out_path)
+    if zarr_path:
+        print(f"  Zarr   : {zarr_path}")
     return out_path
+
+
+def _save_zarr(cube: xr.Dataset, path: str, cfg: AgeodataConfig) -> str:
+    """Write the cube as a Zarr v3 store using the configured geometry."""
+    from ..transform.zarr_export import CubeGeometry, export_datacube_to_zarr
+
+    chunks = cfg.general.zarr_chunks
+    geometry = CubeGeometry(sharded=cfg.general.zarr_sharded)
+    if chunks:
+        t, y, x = chunks
+        geometry = CubeGeometry(
+            time_chunk=t, lat_chunk=y, lon_chunk=x,
+            time_shard=geometry.time_shard, lat_shard=geometry.lat_shard,
+            lon_shard=geometry.lon_shard, sharded=cfg.general.zarr_sharded,
+        )
+
+    logger.info("Writing Zarr datacube -> %s", path)
+    export_datacube_to_zarr(
+        cube, path,
+        geometry=geometry,
+        quantize=cfg.general.zarr_quantize,
+        codec=cfg.general.zarr_codec,
+    )
+    return path
 
 
 # ---------------------------------------------------------------------------
@@ -386,7 +421,13 @@ def _build_single_date(
 # ---------------------------------------------------------------------------
 
 def _log_cube_summary(cube: xr.Dataset, path: str) -> None:
-    size_mb = os.path.getsize(path) / 1e6
+    # A Zarr store is a directory, so sum it rather than stat it.
+    if os.path.isdir(path):
+        size_mb = sum(
+            f.stat().st_size for f in Path(path).rglob("*") if f.is_file()
+        ) / 1e6
+    else:
+        size_mb = os.path.getsize(path) / 1e6
     print("\n" + "=" * 56)
     print("  DATACUBE SUMMARY")
     print("=" * 56)
