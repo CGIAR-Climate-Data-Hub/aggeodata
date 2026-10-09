@@ -2,7 +2,18 @@
 aggeodata.ingestion.agera5
 ===========================
 
-AgERA5 agrometeorological indicator downloader via the Copernicus CDS API.
+AgERA5 agrometeorological indicator downloader.
+
+Two backends are supported via the *backend* parameter:
+
+* ``"cds"`` (default) — the Copernicus CDS API.  One queued request per year,
+  returning a zip of per-day NetCDFs.
+* ``"zarr"`` — the ECMWF ARCO datastore, where AgERA5 is published as a
+  consolidated Zarr datacube.  A bounding box plus a date range is a single
+  indexed read, with no request queue, which is far faster for long series.
+
+Both backends authenticate with the same ``~/.cdsapirc`` key and write the same
+per-day NetCDF layout, so downstream stages do not care which one was used.
 
 Rule: this module ONLY downloads files to disk.
 """
@@ -16,7 +27,7 @@ import os
 import shutil
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 import xarray
@@ -32,6 +43,12 @@ from .files_manager import (
 )
 from .cf_names import AGERA5_CF_MAP
 from .gis_functions import read_raster_data
+from .zarr_backend import (
+    AGERA5_ARCO_GEO_URL,
+    AGERA5_ARCO_TIME_URL,
+    cds_storage_options,
+    download_daily_from_zarr,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +100,35 @@ AGERA5_VARIABLE_MAP: dict[str, dict] = {
         "variable": "2m_temperature",
         "statistic": ["24_hour_minimum"],
     },
+}
+
+# ---------------------------------------------------------------------------
+# Variable map — config key → variable name in the ECMWF ARCO Zarr store
+#
+# The ARCO store publishes 28 AgERA5 variables; only the ones aggeodata already
+# exposes through AGERA5_VARIABLE_MAP are mapped here.  The remaining ARCO
+# variables (cloud cover, snow thickness, precipitation duration fractions,
+# day/night-time temperature means, ...) are intentionally left out — add an
+# entry here *and* to AGERA5_VARIABLE_MAP to support one.
+# ---------------------------------------------------------------------------
+
+AGERA5_ARCO_VARIABLES: dict[str, str] = {
+    "precipitation":                "Precipitation_Flux",
+    "solar_radiation":              "Solar_Radiation_Flux",
+    "temperature_tmax":             "Temperature_Air_2m_Max_24h",
+    "temperature_tmin":             "Temperature_Air_2m_Min_24h",
+    "wind_speed":                   "Wind_Speed_10m_Mean_24h",
+    "dew_point_temperature":        "Dew_Point_Temperature_2m_Mean_24h",
+    "vapour_pressure":              "Vapour_Pressure_Mean_24h",
+    "vapour_pressure_defficit":     "Vapour_Pressure_Deficit_at_Maximum_Temperature",
+    "reference_evapotranspiration": "ReferenceET_PenmanMonteith_FAO56",
+    "relative_humidity_max":        "Derived_Relative_Humidity_2m_Max_24h",
+    "relative_humidity_min":        "Derived_Relative_Humidity_2m_Min_24h",
+    "relative_humidity_06":         "Relative_Humidity_2m_06h",
+    "relative_humidity_09":         "Relative_Humidity_2m_09h",
+    "relative_humidity_12":         "Relative_Humidity_2m_12h",
+    "relative_humidity_15":         "Relative_Humidity_2m_15h",
+    "relative_humidity_18":         "Relative_Humidity_2m_18h",
 }
 
 AGERA5_SHORT_NAMES: dict[str, str] = {
@@ -184,16 +230,27 @@ def read_annual_data(
 # ---------------------------------------------------------------------------
 
 class AgEra5Downloader:
-    """Download AgERA5 agrometeorological data from the Copernicus CDS API.
+    """Download AgERA5 agrometeorological data from the CDS API or ECMWF ARCO.
 
     Parameters
     ----------
     product : str
         CDS dataset identifier. Default: ``"sis-agrometeorological-indicators"``.
     version : str
-        AgERA5 product version — ``"2_0"`` (default) or ``"1_1"``.
+        AgERA5 product version — ``"2_0"`` (default) or ``"1_1"``.  Only used by
+        the CDS backend; the ARCO store publishes a single current version.
     max_attempts : int
-        Maximum retry attempts per year.  Default: 3.
+        Maximum retry attempts per year.  Default: 3.  CDS backend only.
+    backend : str
+        ``"cds"`` *(default)* — queued CDS API request, one zip per year.
+        ``"zarr"`` — slice the ECMWF ARCO Zarr datacube.
+    chunking : str
+        Which ARCO store to read when ``backend="zarr"``.  ``"geo"`` *(default)*
+        is chunked ``(2112 time, 16 lat, 32 lon)`` and suits many days over a
+        modest AOI; ``"time"`` is chunked ``(1, 1024, 1024)`` and suits a few
+        days over a very large AOI.
+    zarr_url : str | None
+        Override the ARCO store URL — only used when ``backend="zarr"``.
 
     Examples
     --------
@@ -206,6 +263,21 @@ class AgEra5Downloader:
     ...     output_folder="data/raw/tmax",
     ...     aoi_extent=[-90.5, 13.0, -88.5, 15.5],
     ... )
+
+    The same request against the ARCO datacube — pass the aggeodata config key
+    rather than the CDS variable/statistic pair:
+
+    >>> dl = AgEra5Downloader(backend="zarr")
+    >>> paths = dl.download(
+    ...     variable="2m_temperature",
+    ...     statistic=["24_hour_maximum"],
+    ...     starting_date="2010-01-01",
+    ...     ending_date="2010-12-31",
+    ...     output_folder="data/raw/tmax",
+    ...     aoi_extent=[-90.5, 13.0, -88.5, 15.5],
+    ...     config_key="temperature_tmax",
+    ...     ncores=4,
+    ... )
     """
 
     PRODUCT: str = "sis-agrometeorological-indicators"
@@ -215,10 +287,22 @@ class AgEra5Downloader:
         product: str = "sis-agrometeorological-indicators",
         version: str = "2_0",
         max_attempts: int = 3,
+        backend: Literal["cds", "zarr"] = "cds",
+        chunking: Literal["geo", "time"] = "geo",
+        zarr_url: str | None = None,
     ) -> None:
+        if backend not in {"cds", "zarr"}:
+            raise ValueError(f"backend must be 'cds' or 'zarr', got '{backend}'")
+        if chunking not in {"geo", "time"}:
+            raise ValueError(f"chunking must be 'geo' or 'time', got '{chunking}'")
         self.product = product
         self.version = version
         self.max_attempts = max_attempts
+        self.backend = backend
+        self.chunking = chunking
+        self.zarr_url = zarr_url or (
+            AGERA5_ARCO_GEO_URL if chunking == "geo" else AGERA5_ARCO_TIME_URL
+        )
 
     def download(
         self,
@@ -230,19 +314,24 @@ class AgEra5Downloader:
         statistic: list[str] | None = None,
         time: list[str] | None = None,
         ncores: int = 4,
+        config_key: str | None = None,
     ) -> dict[str, str]:
         """Download one AgERA5 variable for a date range.
 
         Parameters
         ----------
         variable : str | list[str]
-            CDS variable name(s), e.g. ``"2m_temperature"``.
+            CDS variable name(s), e.g. ``"2m_temperature"``.  Used by the CDS
+            backend; the Zarr backend resolves its variable from *config_key*
+            (falling back to matching *variable* + *statistic* + *time*
+            against :data:`AGERA5_VARIABLE_MAP`).
         starting_date : str
             ISO 8601 start ``"YYYY-MM-DD"``.
         ending_date : str
             ISO 8601 end ``"YYYY-MM-DD"``.
         output_folder : str
-            Root directory; one ``.zip`` per year is written here.
+            Root directory.  CDS backend: one ``.zip`` per year.  Zarr backend:
+            ``<year>/agera5_<short_name>_YYYYMMDD.nc`` per day.
         aoi_extent : list[float]
             ``[xmin, ymin, xmax, ymax]`` in EPSG:4326.
         statistic : list[str] | None
@@ -250,13 +339,32 @@ class AgEra5Downloader:
         time : list[str] | None
             Hour filter for relative-humidity (e.g. ``["12_00"]``).
         ncores : int
-            Parallel threads.  Default: 4.
+            Parallel threads (CDS: concurrent years; Zarr: concurrent
+            time-batches).  Default: 4.
+        config_key : str | None
+            Key from :data:`AGERA5_VARIABLE_MAP` (e.g. ``"temperature_tmax"``).
+            Lets the Zarr backend pick the right ARCO variable without
+            re-deriving it from the CDS request fragment.
 
         Returns
         -------
         dict[str, str]
-            ``{year_str: zip_file_path}``
+            ``{year_str: zip_file_path}`` (CDS) or ``{year_str: year_folder}``
+            (Zarr).
         """
+        if self.backend == "zarr":
+            return self._download_from_zarr(
+                variable=variable,
+                statistic=statistic,
+                time=time,
+                starting_date=starting_date,
+                ending_date=ending_date,
+                output_folder=output_folder,
+                aoi_extent=aoi_extent,
+                ncores=ncores,
+                config_key=config_key,
+            )
+
         Path(output_folder).mkdir(parents=True, exist_ok=True)
         init_year, init_month, init_day = split_date(starting_date)
         end_year, end_month, end_day = split_date(ending_date)
@@ -283,6 +391,106 @@ class AgEra5Downloader:
             years, base_query, output_folder,
             init_year, end_year, init_month, end_month, init_day, end_day,
         )
+
+    # ------------------------------------------------------------------
+    # ECMWF ARCO Zarr backend
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _resolve_config_key(
+        variable: str | list[str],
+        statistic: list[str] | None,
+        time: list[str] | None,
+        config_key: str | None,
+    ) -> str:
+        """Return the AGERA5_VARIABLE_MAP key for this request.
+
+        Prefers an explicit *config_key*; otherwise matches the CDS request
+        fragment (variable + statistic + time) back against the map, which is
+        what distinguishes e.g. tmax from tmin — both are ``2m_temperature``.
+        """
+        if config_key:
+            if config_key not in AGERA5_VARIABLE_MAP:
+                raise ValueError(
+                    f"Unknown AgERA5 config_key '{config_key}'. "
+                    f"Valid keys: {sorted(AGERA5_VARIABLE_MAP)}"
+                )
+            return config_key
+
+        var = variable[0] if isinstance(variable, list) else variable
+        for key, spec in AGERA5_VARIABLE_MAP.items():
+            if (
+                spec["variable"] == var
+                and spec.get("statistic") == statistic
+                and spec.get("time") == time
+            ):
+                return key
+        raise ValueError(
+            f"Cannot map AgERA5 request (variable={var!r}, statistic={statistic!r}, "
+            f"time={time!r}) to a known variable. Pass config_key explicitly — "
+            f"valid keys: {sorted(AGERA5_VARIABLE_MAP)}"
+        )
+
+    @staticmethod
+    def _output_path(output_folder: str, short_name: str, date_str: str) -> str:
+        """Return the per-day NetCDF path for ``date_str`` (``"YYYYMMDD"``)."""
+        return os.path.join(
+            output_folder, date_str[:4], f"agera5_{short_name}_{date_str}.nc"
+        )
+
+    def _download_from_zarr(
+        self,
+        variable: str | list[str],
+        statistic: list[str] | None,
+        time: list[str] | None,
+        starting_date: str,
+        ending_date: str,
+        output_folder: str,
+        aoi_extent: list[float],
+        ncores: int,
+        config_key: str | None,
+    ) -> dict[str, str]:
+        """Slice the ECMWF ARCO store into per-day NetCDF files."""
+        key = self._resolve_config_key(variable, statistic, time, config_key)
+        store_var = AGERA5_ARCO_VARIABLES.get(key)
+        if store_var is None:
+            raise ValueError(
+                f"AgERA5 variable '{key}' is not exposed by the ARCO Zarr backend. "
+                f"Available: {sorted(AGERA5_ARCO_VARIABLES)}. "
+                f"Use backend='cds' for this variable."
+            )
+
+        short_name = AGERA5_SHORT_NAMES.get(key, key)
+        cf_name = AGERA5_CF_MAP.get(key, short_name)
+
+        # Create the year folders up front so the return value matches the CDS
+        # backend's shape even for years the store has no data for.
+        year_folders: dict[str, str] = {}
+        for year in create_yearly_query(starting_date, ending_date):
+            year_folder = os.path.join(output_folder, year)
+            Path(year_folder).mkdir(parents=True, exist_ok=True)
+            year_folders[year] = year_folder
+
+        download_daily_from_zarr(
+            url=self.zarr_url,
+            variables={store_var: cf_name},
+            extent=aoi_extent,
+            starting_date=starting_date,
+            ending_date=ending_date,
+            path_for=lambda _var, date_str: self._output_path(
+                output_folder, short_name, date_str
+            ),
+            ncores=ncores,
+            desc=f"AgERA5 {short_name} (ARCO)",
+            storage_options=cds_storage_options(),
+            lat_name="latitude",
+            lon_name="longitude",
+        )
+        return year_folders
+
+    # ------------------------------------------------------------------
+    # CDS API backend
+    # ------------------------------------------------------------------
 
     @staticmethod
     def stack_annual_to_netcdf(

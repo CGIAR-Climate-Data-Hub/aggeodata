@@ -17,23 +17,24 @@ then assembles them into analysis-ready NetCDF datacubes aligned to a common gri
 | [NASA POWER](https://power.larc.nasa.gov/) | Solar radiation (`rsds`), wind, Tmax, Tmin | 0.5 deg | 1981–present | No |
 | [SoilGrids](https://soilgrids.org/) | clay, sand, silt, bdod, cfvo, soc, phh2o, wv0010, wv0033, wv1500 | 250 m (~0.002 deg) | Static | No |
 
-### Faster CHIRPS / CHIRTS via Hugging Face
+### Faster downloads via analysis-ready Zarr datacubes
 
-The UCSB servers hand out one GeoTIFF per day and throttle to a single connection,
-so a multi-year request takes hours. The same archives are mirrored as consolidated
-**Zarr datacubes** on Hugging Face, where a bounding box plus a date range is one
-indexed read:
+The official endpoints hand out one file per day (CHIRPS/CHIRTS, throttled to a single
+connection) or queue a request per year (AgERA5 via CDS), so a multi-year request takes
+hours. The same archives are published as consolidated **Zarr datacubes**, where a
+bounding box plus a date range is one indexed read:
 
-| Mirror | Variable in store | Dataset |
-|--------|-------------------|---------|
-| CHIRPS v3 daily | `precip` | [`aaguilar90/chirps-v3-daily-rnl`](https://huggingface.co/datasets/aaguilar90/chirps-v3-daily-rnl) |
-| CHIRTS-ERA5 daily | `Tmax`, `Tmin` | [`aaguilar90/chirts-era5-daily`](https://huggingface.co/datasets/aaguilar90/chirts-era5-daily) |
+| Source | Store | Variables | Credentials |
+|--------|-------|-----------|-------------|
+| CHIRPS v3 daily | [`aaguilar90/chirps-v3-daily-rnl`](https://huggingface.co/datasets/aaguilar90/chirps-v3-daily-rnl) | `precip` | none |
+| CHIRTS-ERA5 daily | [`aaguilar90/chirts-era5-daily`](https://huggingface.co/datasets/aaguilar90/chirts-era5-daily) | `Tmax`, `Tmin` | none |
+| AgERA5 | [ECMWF ARCO datastore](https://arco.datastores.ecmwf.int/) | all 16 variables aggeodata exposes | same `~/.cdsapirc` key |
 
 Turn it on with one line in the config:
 
 ```yaml
 GENERAL:
-  use_huggingface: true    # applies to every chirps / chirts variable
+  use_zarr: true    # applies to every chirps / chirts / agera5 variable
 ```
 
 or per variable:
@@ -43,26 +44,48 @@ CLIMATE:
   variables:
     pr:
       source: chirps
-      use_huggingface: true
+      use_zarr: true
     tasmax:
       source: chirts
-      use_huggingface: false   # this one stays on the UCSB servers
+      use_zarr: false       # this one stays on the UCSB servers
+    rsds:
+      source: agera5
+      use_zarr: true
+      agera5_chunking: geo  # "geo" (default) | "time" — see below
 ```
 
-Both backends write the **same per-day NetCDF layout**, so `run_datacube` is unchanged.
-Requires the `download` extra (`zarr`). Notes:
+Every backend writes the **same per-day NetCDF layout** in the same native units, so
+`run_datacube` is unchanged. Requires the `download` extra (`zarr`).
+
+`use_huggingface` / `hf_url` are still accepted as aliases for `use_zarr` / `zarr_url`.
+
+**AgERA5 notes**
+
+* The ARCO store publishes 28 variables; aggeodata maps the 16 it already exposes
+  through `AGERA5_VARIABLE_MAP`. To add one of the others (cloud cover, snow thickness,
+  precipitation duration fractions, day/night temperature means), add an entry to both
+  `AGERA5_VARIABLE_MAP` and `AGERA5_ARCO_VARIABLES`.
+* `agera5_chunking` picks the store: `geo` is chunked `(2112 time, 16 lat, 32 lon)` and
+  suits many days over a modest AOI — the usual request, and the default. `time` is
+  chunked `(1, 1024, 1024)` and only wins for a few days over a very large AOI.
+* Values keep AgERA5's native units, same as the CDS backend (temperatures in **K**,
+  radiation in J m-2 d-1).
+
+**CHIRPS / CHIRTS notes**
 
 * The mirrors carry CHIRPS v3 daily and CHIRTS-**ERA5** daily only. `chirts_source: chirts`
   (the original CHIRTS-daily v1.0) and `frequency="monthly"` are rejected with the
-  Hugging Face backend — use the UCSB one for those.
+  Zarr backend — use the per-day one for those.
 * Temperatures in the mirror are stored rounded to 0.1 °C; the UCSB GeoTIFFs carry
   full float32 precision (max difference 0.05 °C).
 * For precipitation the two backends serve **different products**: the mirror is
   CHIRPS v3 (station-blended), while this repo's UCSB v3 endpoint is
   [CHIRP v3](https://data.chc.ucsb.edu/products/CHIRP-v3.0/) (satellite-only, no
   station blending). Pick one and keep it for the whole time series.
-* Don't mix backends inside one variable folder — rasterio's clip keeps one extra
-  edge pixel, so the per-day grids differ. The downloader warns if it spots this.
+
+**All sources** — don't mix backends inside one variable folder. Clipping with rasterio
+or a server-side `area` request can keep one extra edge pixel that the Zarr coordinate
+slice drops, so the per-day grids differ. The downloader warns if it spots this.
 
 ---
 
@@ -99,6 +122,9 @@ url: https://cds.climate.copernicus.eu/api/v2
 key: <YOUR-UID>:<YOUR-API-KEY>
 ```
 
+The same key authenticates the ECMWF ARCO Zarr store used by `use_zarr: true`, so no
+extra setup is needed for the faster AgERA5 backend.
+
 All other sources (CHIRPS, CHIRTS, NASA POWER, SoilGrids) require no registration.
 
 ---
@@ -133,7 +159,7 @@ config = {
         "task": "download",
         "reference_variable": "pr",
         "target_crs": "EPSG:4326",
-        "use_huggingface": True,  # CHIRPS/CHIRTS from the HF Zarr mirrors (much faster)
+        "use_zarr": True,  # CHIRPS/CHIRTS/AgERA5 from Zarr datacubes (much faster)
     },
     "PATHS": {"output_path": "D:/data/hnd_small/climate_raw"},
 }
@@ -209,13 +235,37 @@ dl.download(extent=[-87.5, 14.2, -87.2, 14.5],
             output_folder="D:/data/chirts_raw", ncores=4)
 ```
 
-**Read a Hugging Face mirror directly** (no files written)
+**AgERA5 (requires CDS key — ARCO Zarr backend)**
 ```python
-from aggeodata.ingestion import HF_CHIRTS_URL, open_hf_zarr, subset_hf_zarr
+from aggeodata.ingestion.agera5 import AGERA5_VARIABLE_MAP, AgEra5Downloader
 
-ds = open_hf_zarr(HF_CHIRTS_URL)
-sub = subset_hf_zarr(ds, ["Tmax"], extent=[33.9, -4.7, 41.9, 5.5],
-                     starting_date="2024-03-01", ending_date="2024-05-31").load()
+spec = AGERA5_VARIABLE_MAP["solar_radiation"]
+dl = AgEra5Downloader(backend="zarr", chunking="geo")
+dl.download(
+    variable=spec["variable"], statistic=spec.get("statistic"), time=spec.get("time"),
+    starting_date="2020-01-01", ending_date="2022-12-31",
+    output_folder="D:/data/agera5_raw", aoi_extent=[-87.5, 14.2, -87.2, 14.5],
+    ncores=4, config_key="solar_radiation",
+)
+```
+
+**Read a Zarr store directly** (no files written)
+```python
+from aggeodata.ingestion import (
+    AGERA5_ARCO_GEO_URL, HF_CHIRTS_URL,
+    cds_storage_options, open_remote_zarr, subset_zarr,
+)
+
+# Public mirror — no credentials
+ds = open_remote_zarr(HF_CHIRTS_URL)
+sub = subset_zarr(ds, ["Tmax"], extent=[33.9, -4.7, 41.9, 5.5],
+                  starting_date="2024-03-01", ending_date="2024-05-31").load()
+
+# AgERA5 — bearer token from ~/.cdsapirc, latitude/longitude coordinate names
+ds = open_remote_zarr(AGERA5_ARCO_GEO_URL, storage_options=cds_storage_options())
+sub = subset_zarr(ds, ["Solar_Radiation_Flux"], extent=[33.9, -4.7, 41.9, 5.5],
+                  starting_date="2024-03-01", ending_date="2024-05-31",
+                  lat_name="latitude", lon_name="longitude").load()
 ```
 
 **NASA POWER (solar radiation, no API key)**
@@ -284,7 +334,7 @@ aggeodata/
 │   ├── ingestion/       # Source-specific downloaders
 │   │   ├── chirps.py
 │   │   ├── chirts.py
-│   │   ├── hf_zarr.py   # Hugging Face Zarr backend (CHIRPS / CHIRTS)
+│   │   ├── zarr_backend.py  # Zarr datacube backend (CHIRPS / CHIRTS / AgERA5)
 │   │   ├── agera5.py
 │   │   ├── nasa_power.py
 │   │   └── soil.py

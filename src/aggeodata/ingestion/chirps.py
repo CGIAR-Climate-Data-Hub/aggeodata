@@ -9,7 +9,7 @@ Two backends are supported via the *backend* parameter:
 * ``"ucsb"`` (default) — Cloud Optimized GeoTIFFs from the UCSB data warehouse,
   one HTTP request per day.
 * ``"hf"`` — the CHIRPS v3 daily Zarr datacube mirrored on Hugging Face
-  (:data:`~aggeodata.ingestion.hf_zarr.HF_CHIRPS_URL`).  A bounding box plus a
+  (:data:`~aggeodata.ingestion.zarr_backend.HF_CHIRPS_URL`).  A bounding box plus a
   date range is a single indexed read, which is far faster for long series.
 
 Both backends write the same per-day NetCDF layout
@@ -35,7 +35,7 @@ from rasterio.mask import mask as rio_mask
 
 from .files_manager import create_yearly_query
 from .gis_functions import from_xyxy_2polygon, numpy_to_xarray
-from .hf_zarr import HF_CHIRPS_URL, download_daily_from_hf
+from .zarr_backend import HF_CHIRPS_URL, download_daily_from_zarr
 
 logger = logging.getLogger(__name__)
 
@@ -216,7 +216,7 @@ class CHIRPSDownloader:
         ncores: int,
     ) -> None:
         """Slice the Hugging Face Zarr store into per-day NetCDF files."""
-        download_daily_from_hf(
+        download_daily_from_zarr(
             url=self.hf_url,
             variables={self.HF_VARIABLE: "pr"},
             extent=extent,

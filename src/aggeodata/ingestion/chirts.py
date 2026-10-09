@@ -18,7 +18,7 @@ Two transports are supported via the *backend* parameter:
 
 * ``"ucsb"`` (default) — one GeoTIFF request per day from the URLs above.
 * ``"hf"`` — the CHIRTS-ERA5 daily Zarr datacube mirrored on Hugging Face
-  (:data:`~aggeodata.ingestion.hf_zarr.HF_CHIRTS_URL`).  A bounding box plus a
+  (:data:`~aggeodata.ingestion.zarr_backend.HF_CHIRTS_URL`).  A bounding box plus a
   date range is a single indexed read, which is far faster for long series.
   This mirror holds the ``"era5"`` product only.
 
@@ -46,7 +46,7 @@ from rasterio.mask import mask as rio_mask
 from .cf_names import to_cf_name
 from .files_manager import create_yearly_query
 from .gis_functions import from_xyxy_2polygon, numpy_to_xarray
-from .hf_zarr import HF_CHIRTS_URL, download_daily_from_hf
+from .zarr_backend import HF_CHIRTS_URL, download_daily_from_zarr
 
 logger = logging.getLogger(__name__)
 
@@ -62,8 +62,6 @@ _URL_TIF = (
     "https://data.chc.ucsb.edu/products/CHIRTS-daily/tifs/global_cogs_v1.0/{Variable}/{year}/"
     "CHIRTSdaily.v1.0.{Variable}.{date}.tif"
 )
-
-_URL_HF: str = HF_CHIRTS_URL
 
 
 _VAR_TITLE = {"tmax": "Tmax", "tmin": "Tmin"}
@@ -250,7 +248,7 @@ class CHIRTSDownloader:
         store_to_cf = {_HF_VAR[v]: to_cf_name(v) for v in self.variables}
         cf_to_native = {to_cf_name(v): v for v in self.variables}
 
-        download_daily_from_hf(
+        download_daily_from_zarr(
             url=self.hf_url,
             variables=store_to_cf,
             extent=extent,

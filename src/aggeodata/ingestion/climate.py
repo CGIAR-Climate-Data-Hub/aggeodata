@@ -99,7 +99,7 @@ class WeatherDownloadOrchestrator:
         ncores: int = 4,
         agera5_version: str = "2_0",
         nasa_power_backend: str = "s3",
-        use_huggingface: bool = False,
+        use_zarr: bool = False,
     ) -> dict[str, dict[str, str]]:
         """Download all requested climate variables.
 
@@ -112,9 +112,11 @@ class WeatherDownloadOrchestrator:
             * ``source`` — ``"chirps"``, ``"chirts"``, ``"agera5"``, ``"nasa_power"``.
               Inferred automatically when omitted.
             * ``chirts_source`` — ``"era5"`` or ``"chirts"`` for CHIRTS downloads.
-            * ``use_huggingface`` — per-variable override of the
-              ``use_huggingface`` argument below (CHIRPS/CHIRTS only).
-            * ``hf_url`` — override the default Hugging Face Zarr URL.
+            * ``use_zarr`` — per-variable override of the ``use_zarr``
+              argument below (CHIRPS / CHIRTS / AgERA5 only).
+            * ``zarr_url`` — override the default Zarr store URL.
+            * ``agera5_chunking`` — ``"geo"`` (default) or ``"time"``; which
+              ECMWF ARCO store to read for AgERA5.
         suffix : str | None
             Optional folder name suffix (e.g. region code).
         export_as_netcdf : bool
@@ -125,10 +127,11 @@ class WeatherDownloadOrchestrator:
             AgERA5 product version (``"2_0"`` or ``"1_1"``).
         nasa_power_backend : str
             ``"s3"`` (default, Zarr) or ``"api"`` (REST tiles).
-        use_huggingface : bool
-            Read CHIRPS/CHIRTS from the Hugging Face Zarr mirrors instead of
-            the UCSB servers — much faster for long time series.  Ignored by
-            every other source.  Default: False.
+        use_zarr : bool
+            Read CHIRPS/CHIRTS from the Hugging Face Zarr mirrors and AgERA5
+            from the ECMWF ARCO datastore instead of the per-file endpoints —
+            much faster for long time series.  Ignored by every other source.
+            Default: False.
 
         Returns
         -------
@@ -141,13 +144,13 @@ class WeatherDownloadOrchestrator:
             out_folder = self._make_output_folder(var_key, suffix)
             source = opts.get("source") or self._infer_source(var_key)
 
-            use_hf = bool(opts.get("use_huggingface", use_huggingface))
-            hf_url = opts.get("hf_url")
+            use_zarr_var = bool(opts.get("use_zarr", use_zarr))
+            zarr_url = opts.get("zarr_url")
 
             if source == "chirps":
                 dl = CHIRPSDownloader(
-                    backend="hf" if use_hf else "ucsb",
-                    hf_url=hf_url,
+                    backend="hf" if use_zarr_var else "ucsb",
+                    hf_url=zarr_url,
                 )
                 paths = dl.download(
                     extent=self.extent,
@@ -163,8 +166,8 @@ class WeatherDownloadOrchestrator:
                 dl_chirts = CHIRTSDownloader(
                     variables=[chirts_var] if chirts_var in {"tmax", "tmin"} else None,
                     source=opts.get("chirts_source", "era5"),
-                    backend="hf" if use_hf else "ucsb",
-                    hf_url=hf_url,
+                    backend="hf" if use_zarr_var else "ucsb",
+                    hf_url=zarr_url,
                 )
                 paths_t = dl_chirts.download(
                     extent=self.extent,
@@ -182,7 +185,12 @@ class WeatherDownloadOrchestrator:
                     results[var_key] = {}
                     continue
                 spec = AGERA5_VARIABLE_MAP[matched]
-                dl_agera5 = AgEra5Downloader(version=agera5_version)
+                dl_agera5 = AgEra5Downloader(
+                    version=agera5_version,
+                    backend="zarr" if use_zarr_var else "cds",
+                    chunking=opts.get("agera5_chunking", "geo"),
+                    zarr_url=zarr_url,
+                )
                 paths = dl_agera5.download(
                     variable=spec["variable"],
                     statistic=spec.get("statistic"),
@@ -192,9 +200,11 @@ class WeatherDownloadOrchestrator:
                     output_folder=out_folder,
                     aoi_extent=self.extent,
                     ncores=ncores,
+                    config_key=matched,
                 )
                 results[var_key] = paths
-                if export_as_netcdf and paths:
+                # The Zarr backend already writes per-day NetCDFs — nothing to stack.
+                if export_as_netcdf and paths and not use_zarr_var:
                     years = sorted(int(y) for y in paths)
                     AgEra5Downloader.stack_annual_to_netcdf(out_folder, years[0], years[-1], out_folder)
 

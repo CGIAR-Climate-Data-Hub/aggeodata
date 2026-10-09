@@ -116,7 +116,7 @@ def run_download(config_path: str | os.PathLike) -> dict[str, dict]:
         out_folder = cfg.var_folder(cf_var)
         Path(out_folder).mkdir(parents=True, exist_ok=True)
         source = var_cfg.source
-        backend = "huggingface" if cfg.use_huggingface_for(cf_var) else "official"
+        backend = "zarr" if cfg.use_zarr_for(cf_var) else "official"
 
         logger.info(
             "Downloading  %-10s  (source: %s, backend: %s) -> %s",
@@ -197,8 +197,8 @@ def _download_variable(
 def _download_chirps(cf_var, out_folder, extent, start, end, cfg):
     from ..ingestion.chirps import CHIRPSDownloader
     dl = CHIRPSDownloader(
-        backend="hf" if cfg.use_huggingface_for(cf_var) else "ucsb",
-        hf_url=cfg.hf_url_for(cf_var),
+        backend="hf" if cfg.use_zarr_for(cf_var) else "ucsb",
+        hf_url=cfg.zarr_url_for(cf_var),
     )
     return dl.download(
         extent=extent,
@@ -214,17 +214,17 @@ def _download_chirts(cf_var, var_cfg, out_folder, extent, start, end, cfg):
     chirts_var = _CF_TO_CHIRTS_VAR.get(cf_var)
     if chirts_var is None:
         raise ValueError(f"CF variable '{cf_var}' has no CHIRTS equivalent")
-    use_hf = cfg.use_huggingface_for(cf_var)
-    if use_hf and var_cfg.chirts_source != "era5":
+    use_zarr = cfg.use_zarr_for(cf_var)
+    if use_zarr and var_cfg.chirts_source != "era5":
         raise ValueError(
             f"Variable '{cf_var}': the Hugging Face mirror holds CHIRTS-ERA5 only. "
-            f"Set chirts_source: era5, or disable use_huggingface for this variable."
+            f"Set chirts_source: era5, or disable use_zarr for this variable."
         )
     dl = CHIRTSDownloader(
         variables=[chirts_var],
         source=var_cfg.chirts_source,
-        backend="hf" if use_hf else "ucsb",
-        hf_url=cfg.hf_url_for(cf_var),
+        backend="hf" if use_zarr else "ucsb",
+        hf_url=cfg.zarr_url_for(cf_var),
     )
     paths = dl.download(
         extent=extent,
@@ -246,7 +246,13 @@ def _download_agera5(cf_var, var_cfg, out_folder, extent, start, end, cfg):
             f"Set agera5_key explicitly in the config."
         )
     spec = AGERA5_VARIABLE_MAP[agera5_key]
-    dl = AgEra5Downloader(version=cfg.general.agera5_version)
+    use_zarr = cfg.use_zarr_for(cf_var)
+    dl = AgEra5Downloader(
+        version=cfg.general.agera5_version,
+        backend="zarr" if use_zarr else "cds",
+        chunking=var_cfg.agera5_chunking,
+        zarr_url=cfg.zarr_url_for(cf_var),
+    )
     return dl.download(
         variable=spec["variable"],
         statistic=spec.get("statistic"),
@@ -256,6 +262,7 @@ def _download_agera5(cf_var, var_cfg, out_folder, extent, start, end, cfg):
         output_folder=out_folder,
         aoi_extent=extent,
         ncores=cfg.general.ncores,
+        config_key=agera5_key,
     )
 
 

@@ -9,7 +9,14 @@ from __future__ import annotations
 
 from typing import Annotated, Literal, List, Optional, Dict, Any
 from pathlib import Path
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    AliasChoices,
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -20,8 +27,10 @@ _VALID_SOURCES: frozenset[str] = frozenset(
     {"chirps", "chirts", "agera5", "nasa_power", "gee"}
 )
 
-# Sources mirrored as Zarr datacubes on Hugging Face (use_huggingface option)
-_HF_SOURCES: frozenset[str] = frozenset({"chirps", "chirts"})
+# Sources published as analysis-ready Zarr datacubes (the use_zarr option):
+#   chirps / chirts -> Hugging Face mirrors (public)
+#   agera5          -> ECMWF ARCO datastore (needs the same ~/.cdsapirc key)
+_ZARR_SOURCES: frozenset[str] = frozenset({"chirps", "chirts", "agera5"})
 
 # CF variables that each source can provide
 _SOURCE_VARIABLES: dict[str, frozenset[str]] = {
@@ -44,6 +53,8 @@ _SOURCE_VARIABLES: dict[str, frozenset[str]] = {
 class VariableConfig(BaseModel):
     """Configuration for a single CF climate variable."""
 
+    model_config = ConfigDict(populate_by_name=True)
+
     source: Annotated[
         str,
         Field(description="Data provider: chirps | chirts | agera5 | nasa_power | gee"),
@@ -52,27 +63,41 @@ class VariableConfig(BaseModel):
         Literal["era5", "chirts"],
         Field(default="era5", description="CHIRTS variant — only used when source=chirts"),
     ] = "era5"
-    use_huggingface: Annotated[
+    use_zarr: Annotated[
         bool | None,
         Field(
             default=None,
+            validation_alias=AliasChoices("use_zarr", "use_huggingface"),
             description=(
-                "Read this variable from the Hugging Face Zarr mirror instead of the "
-                "official server. Only valid for source=chirps | chirts. "
-                "None (default) inherits general.use_huggingface."
+                "Read this variable from its analysis-ready Zarr datacube instead of "
+                "the per-file endpoint. Only valid for source=chirps | chirts | agera5. "
+                "None (default) inherits general.use_zarr. "
+                "Accepts the legacy name 'use_huggingface'."
             ),
         ),
     ] = None
-    hf_url: Annotated[
+    zarr_url: Annotated[
         str | None,
         Field(
             default=None,
+            validation_alias=AliasChoices("zarr_url", "hf_url"),
             description=(
-                "Override the default Hugging Face Zarr URL for this variable — "
-                "only used when the Hugging Face backend is active."
+                "Override the default Zarr store URL for this variable — only used "
+                "when the Zarr backend is active. Accepts the legacy name 'hf_url'."
             ),
         ),
     ] = None
+    agera5_chunking: Annotated[
+        Literal["geo", "time"],
+        Field(
+            default="geo",
+            description=(
+                "Which ECMWF ARCO store to read when source=agera5 and the Zarr "
+                "backend is active. 'geo' (default) suits many days over a modest "
+                "AOI; 'time' suits a few days over a very large AOI."
+            ),
+        ),
+    ] = "geo"
     agera5_key: Annotated[
         str | None,
         Field(default=None, description="Override default CF→AgERA5 variable key"),
@@ -178,17 +203,17 @@ class IngestionClimateConfig(BaseModel):
                     f"Variable '{cf_var}' is not available from source '{cfg.source}'. "
                     f"Supported CF variables for {cfg.source}: {sorted(allowed)}"
                 )
-            # An explicit per-variable opt-in to a mirror that does not exist is
+            # An explicit per-variable opt-in to a datacube that does not exist is
             # a config error; the global default silently applies only where it can.
-            if cfg.use_huggingface and cfg.source not in _HF_SOURCES:
+            if cfg.use_zarr and cfg.source not in _ZARR_SOURCES:
                 raise ValueError(
-                    f"Variable '{cf_var}': use_huggingface is only available for "
-                    f"sources {sorted(_HF_SOURCES)}, not '{cfg.source}'."
+                    f"Variable '{cf_var}': use_zarr is only available for "
+                    f"sources {sorted(_ZARR_SOURCES)}, not '{cfg.source}'."
                 )
-            if cfg.hf_url and cfg.source not in _HF_SOURCES:
+            if cfg.zarr_url and cfg.source not in _ZARR_SOURCES:
                 raise ValueError(
-                    f"Variable '{cf_var}': hf_url is only meaningful for "
-                    f"sources {sorted(_HF_SOURCES)}, not '{cfg.source}'."
+                    f"Variable '{cf_var}': zarr_url is only meaningful for "
+                    f"sources {sorted(_ZARR_SOURCES)}, not '{cfg.source}'."
                 )
         return self
 
@@ -246,16 +271,19 @@ class GeneralConfig(BaseModel):
         Literal["s3", "rest"],
         Field(default="s3", description="s3=Zarr (faster), rest=tile API"),
     ] = "s3"
-    use_huggingface: Annotated[
+    use_zarr: Annotated[
         bool,
         Field(
             default=False,
+            validation_alias=AliasChoices("use_zarr", "use_huggingface"),
             description=(
-                "Default backend for CHIRPS/CHIRTS variables. True reads the Zarr "
-                "datacubes mirrored on Hugging Face (much faster than the per-day "
-                "GeoTIFFs on the UCSB servers); False uses the official endpoints. "
-                "Ignored by every other source; override per variable with "
-                "climate.variables.<var>.use_huggingface."
+                "Default backend for CHIRPS / CHIRTS / AgERA5 variables. True reads "
+                "the analysis-ready Zarr datacubes (CHIRPS and CHIRTS from Hugging "
+                "Face, AgERA5 from the ECMWF ARCO datastore) — much faster than the "
+                "per-day GeoTIFFs and the queued CDS requests; False uses the "
+                "official endpoints. Ignored by every other source; override per "
+                "variable with climate.variables.<var>.use_zarr. "
+                "Accepts the legacy name 'use_huggingface'."
             ),
         ),
     ] = False
@@ -316,12 +344,12 @@ class AgeodataConfig(BaseModel):
         name = f"{cf_var}_{self.general.suffix}_raw" if self.general.suffix else f"{cf_var}_raw"
         return os.path.join(self.paths.output_path, name)
 
-    def use_huggingface_for(self, cf_var: str) -> bool:
-        """Return True if *cf_var* should be read from the Hugging Face mirror.
+    def use_zarr_for(self, cf_var: str) -> bool:
+        """Return True if *cf_var* should be read from its Zarr datacube.
 
-        The per-variable ``use_huggingface`` wins when set; otherwise the
-        ``general.use_huggingface`` default applies, but only to sources that
-        actually have a mirror (CHIRPS, CHIRTS).
+        The per-variable ``use_zarr`` wins when set; otherwise the
+        ``general.use_zarr`` default applies, but only to sources that actually
+        publish a datacube (CHIRPS, CHIRTS, AgERA5).
 
         Parameters
         ----------
@@ -333,15 +361,15 @@ class AgeodataConfig(BaseModel):
         bool
         """
         var_cfg = self.climate.variables[cf_var]
-        if var_cfg.source not in _HF_SOURCES:
+        if var_cfg.source not in _ZARR_SOURCES:
             return False
-        if var_cfg.use_huggingface is not None:
-            return var_cfg.use_huggingface
-        return self.general.use_huggingface
+        if var_cfg.use_zarr is not None:
+            return var_cfg.use_zarr
+        return self.general.use_zarr
 
-    def hf_url_for(self, cf_var: str) -> str | None:
-        """Return the per-variable Hugging Face Zarr URL override, if any."""
-        return self.climate.variables[cf_var].hf_url
+    def zarr_url_for(self, cf_var: str) -> str | None:
+        """Return the per-variable Zarr store URL override, if any."""
+        return self.climate.variables[cf_var].zarr_url
 
 
 class ClimateIndex(BaseModel):

@@ -44,9 +44,11 @@ SPATIAL_INFO:
 #   chirts_source   : "era5" (default) | "chirts"  — only when source=chirts
 #   agera5_key      : override the default CF → AgERA5 variable mapping
 #   nasa_power_param: override the default CF → NASA POWER parameter code
-#   use_huggingface : true | false — override GENERAL.use_huggingface for this
-#                     variable (chirps / chirts only)
-#   hf_url          : override the default Hugging Face Zarr URL
+#   use_zarr        : true | false — override GENERAL.use_zarr for this
+#                     variable (chirps / chirts / agera5 only)
+#   zarr_url        : override the default Zarr store URL
+#   agera5_chunking : "geo" (default) | "time" — which ECMWF ARCO store to read
+#                     when source=agera5 and the Zarr backend is active
 # ---------------------------------------------------------------------------
 CLIMATE:
   variables:
@@ -90,14 +92,16 @@ SOIL:
 #   task: "download"  — download raw files only
 #   task: "datacube"  — build spatially co-registered multi-variable cube
 #
-#   use_huggingface: true reads CHIRPS and CHIRTS from the Zarr datacubes
-#   mirrored on Hugging Face instead of fetching one GeoTIFF per day from the
-#   UCSB servers — far faster for long time series. The files written to disk
-#   are identical either way, so the datacube step is unchanged.
+#   use_zarr: true reads the analysis-ready Zarr datacubes instead of fetching
+#   one file per day (CHIRPS/CHIRTS) or queueing one CDS request per year
+#   (AgERA5) — far faster for long time series. The files written to disk are
+#   identical either way, so the datacube step is unchanged.
 #     CHIRPS  https://huggingface.co/datasets/aaguilar90/chirps-v3-daily-rnl
 #     CHIRTS  https://huggingface.co/datasets/aaguilar90/chirts-era5-daily
-#   Requires the 'download' extra (zarr). Only affects chirps / chirts
-#   variables; every other source ignores it.
+#     AgERA5  ECMWF ARCO datastore (uses the same ~/.cdsapirc key)
+#   Requires the 'download' extra (zarr). Only affects chirps / chirts /
+#   agera5 variables; every other source ignores it.
+#   The legacy name 'use_huggingface' is still accepted.
 # ---------------------------------------------------------------------------
 GENERAL:
   suffix:              "hnd_test"   # appended to output folder names
@@ -106,7 +110,7 @@ GENERAL:
   reference_variable:  "pr"        # CF name used as spatial reference for the cube
   agera5_version:      "2_0"       # AgERA5 product version  "1_1" | "2_0"
   nasa_power_backend:  "s3"        # "s3" (Zarr, fast) | "rest" (tile API)
-  use_huggingface:     true        # true = HF Zarr mirror | false = UCSB servers
+  use_zarr:            true        # true = Zarr datacubes | false = official endpoints
 
 PATHS:
   output_path: "data/raw/"

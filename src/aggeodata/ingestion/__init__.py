@@ -9,12 +9,16 @@ from .climate import WeatherDownloadOrchestrator
 from .soil import SoilGridsDownloader
 from .boundaries import get_admin_boundary, list_admin_units
 from .cf_names import CF_VARIABLE_MAP, AGERA5_CF_MAP, to_cf_name, rename_cf_vars
-from .hf_zarr import (
+from .zarr_backend import (
+    AGERA5_ARCO_GEO_URL,
+    AGERA5_ARCO_TIME_URL,
     HF_CHIRPS_URL,
     HF_CHIRTS_URL,
-    download_daily_from_hf,
-    open_hf_zarr,
-    subset_hf_zarr,
+    cds_storage_options,
+    download_daily_from_zarr,
+    open_remote_zarr,
+    read_cds_api_key,
+    subset_zarr,
 )
 
 __all__ = [
@@ -37,10 +41,14 @@ __all__ = [
     "AGERA5_CF_MAP",
     "to_cf_name",
     "rename_cf_vars",
-    # Hugging Face Zarr mirrors (CHIRPS / CHIRTS)
+    # Analysis-ready Zarr backend (CHIRPS / CHIRTS / AgERA5)
     "HF_CHIRPS_URL",
     "HF_CHIRTS_URL",
-    "open_hf_zarr",
-    "subset_hf_zarr",
-    "download_daily_from_hf",
+    "AGERA5_ARCO_GEO_URL",
+    "AGERA5_ARCO_TIME_URL",
+    "open_remote_zarr",
+    "subset_zarr",
+    "download_daily_from_zarr",
+    "read_cds_api_key",
+    "cds_storage_options",
 ]
