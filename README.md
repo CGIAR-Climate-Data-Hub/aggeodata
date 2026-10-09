@@ -17,6 +17,53 @@ then assembles them into analysis-ready NetCDF datacubes aligned to a common gri
 | [NASA POWER](https://power.larc.nasa.gov/) | Solar radiation (`rsds`), wind, Tmax, Tmin | 0.5 deg | 1981–present | No |
 | [SoilGrids](https://soilgrids.org/) | clay, sand, silt, bdod, cfvo, soc, phh2o, wv0010, wv0033, wv1500 | 250 m (~0.002 deg) | Static | No |
 
+### Faster CHIRPS / CHIRTS via Hugging Face
+
+The UCSB servers hand out one GeoTIFF per day and throttle to a single connection,
+so a multi-year request takes hours. The same archives are mirrored as consolidated
+**Zarr datacubes** on Hugging Face, where a bounding box plus a date range is one
+indexed read:
+
+| Mirror | Variable in store | Dataset |
+|--------|-------------------|---------|
+| CHIRPS v3 daily | `precip` | [`aaguilar90/chirps-v3-daily-rnl`](https://huggingface.co/datasets/aaguilar90/chirps-v3-daily-rnl) |
+| CHIRTS-ERA5 daily | `Tmax`, `Tmin` | [`aaguilar90/chirts-era5-daily`](https://huggingface.co/datasets/aaguilar90/chirts-era5-daily) |
+
+Turn it on with one line in the config:
+
+```yaml
+GENERAL:
+  use_huggingface: true    # applies to every chirps / chirts variable
+```
+
+or per variable:
+
+```yaml
+CLIMATE:
+  variables:
+    pr:
+      source: chirps
+      use_huggingface: true
+    tasmax:
+      source: chirts
+      use_huggingface: false   # this one stays on the UCSB servers
+```
+
+Both backends write the **same per-day NetCDF layout**, so `run_datacube` is unchanged.
+Requires the `download` extra (`zarr`). Notes:
+
+* The mirrors carry CHIRPS v3 daily and CHIRTS-**ERA5** daily only. `chirts_source: chirts`
+  (the original CHIRTS-daily v1.0) and `frequency="monthly"` are rejected with the
+  Hugging Face backend — use the UCSB one for those.
+* Temperatures in the mirror are stored rounded to 0.1 °C; the UCSB GeoTIFFs carry
+  full float32 precision (max difference 0.05 °C).
+* For precipitation the two backends serve **different products**: the mirror is
+  CHIRPS v3 (station-blended), while this repo's UCSB v3 endpoint is
+  [CHIRP v3](https://data.chc.ucsb.edu/products/CHIRP-v3.0/) (satellite-only, no
+  station blending). Pick one and keep it for the whole time series.
+* Don't mix backends inside one variable folder — rasterio's clip keeps one extra
+  edge pixel, so the per-day grids differ. The downloader warns if it spots this.
+
 ---
 
 ## Install
@@ -86,6 +133,7 @@ config = {
         "task": "download",
         "reference_variable": "pr",
         "target_crs": "EPSG:4326",
+        "use_huggingface": True,  # CHIRPS/CHIRTS from the HF Zarr mirrors (much faster)
     },
     "PATHS": {"output_path": "D:/data/hnd_small/climate_raw"},
 }
@@ -141,11 +189,13 @@ builder.build_and_save(
 ```python
 from aggeodata.ingestion.chirps import CHIRPSDownloader
 
-dl = CHIRPSDownloader(output_folder="D:/data/chirps_raw")
+dl = CHIRPSDownloader(backend="hf")   # "ucsb" (default) for the official server
 dl.download(
     extent=[-87.5, 14.2, -87.2, 14.5],
     starting_date="2020-01-01",
     ending_date="2022-12-31",
+    output_folder="D:/data/chirps_raw",
+    ncores=4,                         # HF backend: concurrent time-batches
 )
 ```
 
@@ -153,9 +203,19 @@ dl.download(
 ```python
 from aggeodata.ingestion.chirts import CHIRTSDownloader
 
-dl = CHIRTSDownloader(variable="tasmax", output_folder="D:/data/chirts_raw")
+dl = CHIRTSDownloader(variables=["tmax", "tmin"], backend="hf")
 dl.download(extent=[-87.5, 14.2, -87.2, 14.5],
-            starting_date="2020-01-01", ending_date="2022-12-31")
+            starting_date="2020-01-01", ending_date="2022-12-31",
+            output_folder="D:/data/chirts_raw", ncores=4)
+```
+
+**Read a Hugging Face mirror directly** (no files written)
+```python
+from aggeodata.ingestion import HF_CHIRTS_URL, open_hf_zarr, subset_hf_zarr
+
+ds = open_hf_zarr(HF_CHIRTS_URL)
+sub = subset_hf_zarr(ds, ["Tmax"], extent=[33.9, -4.7, 41.9, 5.5],
+                     starting_date="2024-03-01", ending_date="2024-05-31").load()
 ```
 
 **NASA POWER (solar radiation, no API key)**
@@ -224,6 +284,7 @@ aggeodata/
 │   ├── ingestion/       # Source-specific downloaders
 │   │   ├── chirps.py
 │   │   ├── chirts.py
+│   │   ├── hf_zarr.py   # Hugging Face Zarr backend (CHIRPS / CHIRTS)
 │   │   ├── agera5.py
 │   │   ├── nasa_power.py
 │   │   └── soil.py

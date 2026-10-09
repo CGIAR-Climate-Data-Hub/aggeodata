@@ -99,6 +99,7 @@ class WeatherDownloadOrchestrator:
         ncores: int = 4,
         agera5_version: str = "2_0",
         nasa_power_backend: str = "s3",
+        use_huggingface: bool = False,
     ) -> dict[str, dict[str, str]]:
         """Download all requested climate variables.
 
@@ -111,6 +112,9 @@ class WeatherDownloadOrchestrator:
             * ``source`` — ``"chirps"``, ``"chirts"``, ``"agera5"``, ``"nasa_power"``.
               Inferred automatically when omitted.
             * ``chirts_source`` — ``"era5"`` or ``"chirts"`` for CHIRTS downloads.
+            * ``use_huggingface`` — per-variable override of the
+              ``use_huggingface`` argument below (CHIRPS/CHIRTS only).
+            * ``hf_url`` — override the default Hugging Face Zarr URL.
         suffix : str | None
             Optional folder name suffix (e.g. region code).
         export_as_netcdf : bool
@@ -121,6 +125,10 @@ class WeatherDownloadOrchestrator:
             AgERA5 product version (``"2_0"`` or ``"1_1"``).
         nasa_power_backend : str
             ``"s3"`` (default, Zarr) or ``"api"`` (REST tiles).
+        use_huggingface : bool
+            Read CHIRPS/CHIRTS from the Hugging Face Zarr mirrors instead of
+            the UCSB servers — much faster for long time series.  Ignored by
+            every other source.  Default: False.
 
         Returns
         -------
@@ -133,8 +141,14 @@ class WeatherDownloadOrchestrator:
             out_folder = self._make_output_folder(var_key, suffix)
             source = opts.get("source") or self._infer_source(var_key)
 
+            use_hf = bool(opts.get("use_huggingface", use_huggingface))
+            hf_url = opts.get("hf_url")
+
             if source == "chirps":
-                dl = CHIRPSDownloader()
+                dl = CHIRPSDownloader(
+                    backend="hf" if use_hf else "ucsb",
+                    hf_url=hf_url,
+                )
                 paths = dl.download(
                     extent=self.extent,
                     starting_date=self.starting_date,
@@ -149,6 +163,8 @@ class WeatherDownloadOrchestrator:
                 dl_chirts = CHIRTSDownloader(
                     variables=[chirts_var] if chirts_var in {"tmax", "tmin"} else None,
                     source=opts.get("chirts_source", "era5"),
+                    backend="hf" if use_hf else "ucsb",
+                    hf_url=hf_url,
                 )
                 paths_t = dl_chirts.download(
                     extent=self.extent,

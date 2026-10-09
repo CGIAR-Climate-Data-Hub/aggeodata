@@ -20,6 +20,9 @@ _VALID_SOURCES: frozenset[str] = frozenset(
     {"chirps", "chirts", "agera5", "nasa_power", "gee"}
 )
 
+# Sources mirrored as Zarr datacubes on Hugging Face (use_huggingface option)
+_HF_SOURCES: frozenset[str] = frozenset({"chirps", "chirts"})
+
 # CF variables that each source can provide
 _SOURCE_VARIABLES: dict[str, frozenset[str]] = {
     "chirps":     frozenset({"pr"}),
@@ -49,6 +52,27 @@ class VariableConfig(BaseModel):
         Literal["era5", "chirts"],
         Field(default="era5", description="CHIRTS variant — only used when source=chirts"),
     ] = "era5"
+    use_huggingface: Annotated[
+        bool | None,
+        Field(
+            default=None,
+            description=(
+                "Read this variable from the Hugging Face Zarr mirror instead of the "
+                "official server. Only valid for source=chirps | chirts. "
+                "None (default) inherits general.use_huggingface."
+            ),
+        ),
+    ] = None
+    hf_url: Annotated[
+        str | None,
+        Field(
+            default=None,
+            description=(
+                "Override the default Hugging Face Zarr URL for this variable — "
+                "only used when the Hugging Face backend is active."
+            ),
+        ),
+    ] = None
     agera5_key: Annotated[
         str | None,
         Field(default=None, description="Override default CF→AgERA5 variable key"),
@@ -154,6 +178,18 @@ class IngestionClimateConfig(BaseModel):
                     f"Variable '{cf_var}' is not available from source '{cfg.source}'. "
                     f"Supported CF variables for {cfg.source}: {sorted(allowed)}"
                 )
+            # An explicit per-variable opt-in to a mirror that does not exist is
+            # a config error; the global default silently applies only where it can.
+            if cfg.use_huggingface and cfg.source not in _HF_SOURCES:
+                raise ValueError(
+                    f"Variable '{cf_var}': use_huggingface is only available for "
+                    f"sources {sorted(_HF_SOURCES)}, not '{cfg.source}'."
+                )
+            if cfg.hf_url and cfg.source not in _HF_SOURCES:
+                raise ValueError(
+                    f"Variable '{cf_var}': hf_url is only meaningful for "
+                    f"sources {sorted(_HF_SOURCES)}, not '{cfg.source}'."
+                )
         return self
 
 
@@ -210,6 +246,19 @@ class GeneralConfig(BaseModel):
         Literal["s3", "rest"],
         Field(default="s3", description="s3=Zarr (faster), rest=tile API"),
     ] = "s3"
+    use_huggingface: Annotated[
+        bool,
+        Field(
+            default=False,
+            description=(
+                "Default backend for CHIRPS/CHIRTS variables. True reads the Zarr "
+                "datacubes mirrored on Hugging Face (much faster than the per-day "
+                "GeoTIFFs on the UCSB servers); False uses the official endpoints. "
+                "Ignored by every other source; override per variable with "
+                "climate.variables.<var>.use_huggingface."
+            ),
+        ),
+    ] = False
     target_crs: Annotated[
         str,
         Field(default="EPSG:4326", description="Output CRS for the datacube (any PROJ/EPSG string)"),
@@ -266,6 +315,33 @@ class AgeodataConfig(BaseModel):
         import os
         name = f"{cf_var}_{self.general.suffix}_raw" if self.general.suffix else f"{cf_var}_raw"
         return os.path.join(self.paths.output_path, name)
+
+    def use_huggingface_for(self, cf_var: str) -> bool:
+        """Return True if *cf_var* should be read from the Hugging Face mirror.
+
+        The per-variable ``use_huggingface`` wins when set; otherwise the
+        ``general.use_huggingface`` default applies, but only to sources that
+        actually have a mirror (CHIRPS, CHIRTS).
+
+        Parameters
+        ----------
+        cf_var : str
+            CF variable name listed under ``climate.variables``.
+
+        Returns
+        -------
+        bool
+        """
+        var_cfg = self.climate.variables[cf_var]
+        if var_cfg.source not in _HF_SOURCES:
+            return False
+        if var_cfg.use_huggingface is not None:
+            return var_cfg.use_huggingface
+        return self.general.use_huggingface
+
+    def hf_url_for(self, cf_var: str) -> str | None:
+        """Return the per-variable Hugging Face Zarr URL override, if any."""
+        return self.climate.variables[cf_var].hf_url
 
 
 class ClimateIndex(BaseModel):

@@ -9,7 +9,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name        = "aggeodata"
-version     = "0.1.0"
+version     = "0.2.0"
 description = "Multi-source climate and soil data ingestion and datacube transforms (CHIRPS, CHIRTS, AgERA5, NASA POWER, SoilGrids)."
 readme      = "README.md"
 license     = {text = "MIT"}
@@ -37,16 +37,26 @@ classifiers = [
 ]
 
 dependencies = [
+    # --- Arrays / tables (imported directly across the package) ---
+    "numpy>=1.24",
+    "pandas>=2.0",
+
     # --- Spatial / raster ---
     "xarray>=2024.1.0",
     "netCDF4>=1.6.5",
     "rioxarray>=0.15.0",
     "rasterio>=1.3.9",
     "geopandas>=1.0.0",
+    "shapely>=2.0",
+
+    # --- Configuration (aggeodata.config) ---
+    "pydantic>=2.0",
+    "PyYAML>=6.0",
 
     # --- Utilities ---
     "tqdm>=4.66.0",
     "requests>=2.31.0",
+    "python-dateutil>=2.8",
 ]
 
 
@@ -56,7 +66,15 @@ download = [
     "cdsapi>=0.7.0",
     "soilgrids>=0.1.4",
     "s3fs>=2024.1.0",
-    "zarr>=2.17.0",
+    # Zarr backends: NASA POWER (S3) and the CHIRPS/CHIRTS Hugging Face mirrors.
+    # The Hugging Face stores are Zarr v3 format (zarr.json), which zarr-python
+    # 2.x cannot read — hence the >=3.0 floor.
+    "zarr>=3.0.0",
+    # Remote Zarr over https needs the fsspec http filesystem (aiohttp), and
+    # xarray returns dask-backed arrays for chunked stores.
+    "fsspec>=2024.1.0",
+    "aiohttp>=3.9.0",
+    "dask[array]>=2024.1.0",
     "earthengine-api"
 ]
 

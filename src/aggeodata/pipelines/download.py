@@ -116,8 +116,12 @@ def run_download(config_path: str | os.PathLike) -> dict[str, dict]:
         out_folder = cfg.var_folder(cf_var)
         Path(out_folder).mkdir(parents=True, exist_ok=True)
         source = var_cfg.source
+        backend = "huggingface" if cfg.use_huggingface_for(cf_var) else "official"
 
-        logger.info("Downloading  %-10s  (source: %s) -> %s", cf_var, source, out_folder)
+        logger.info(
+            "Downloading  %-10s  (source: %s, backend: %s) -> %s",
+            cf_var, source, backend, out_folder,
+        )
 
         try:
             result = _download_variable(
@@ -173,7 +177,7 @@ def _download_variable(
     cfg: AgeodataConfig,
 ) -> dict:
     if source == "chirps":
-        return _download_chirps(out_folder, extent, start, end, cfg)
+        return _download_chirps(cf_var, out_folder, extent, start, end, cfg)
 
     if source == "chirts":
         return _download_chirts(cf_var, var_cfg, out_folder, extent, start, end, cfg)
@@ -190,9 +194,12 @@ def _download_variable(
     raise ValueError(f"Unknown source '{source}' for variable '{cf_var}'")
 
 
-def _download_chirps(out_folder, extent, start, end, cfg):
+def _download_chirps(cf_var, out_folder, extent, start, end, cfg):
     from ..ingestion.chirps import CHIRPSDownloader
-    dl = CHIRPSDownloader()
+    dl = CHIRPSDownloader(
+        backend="hf" if cfg.use_huggingface_for(cf_var) else "ucsb",
+        hf_url=cfg.hf_url_for(cf_var),
+    )
     return dl.download(
         extent=extent,
         starting_date=start,
@@ -207,9 +214,17 @@ def _download_chirts(cf_var, var_cfg, out_folder, extent, start, end, cfg):
     chirts_var = _CF_TO_CHIRTS_VAR.get(cf_var)
     if chirts_var is None:
         raise ValueError(f"CF variable '{cf_var}' has no CHIRTS equivalent")
+    use_hf = cfg.use_huggingface_for(cf_var)
+    if use_hf and var_cfg.chirts_source != "era5":
+        raise ValueError(
+            f"Variable '{cf_var}': the Hugging Face mirror holds CHIRTS-ERA5 only. "
+            f"Set chirts_source: era5, or disable use_huggingface for this variable."
+        )
     dl = CHIRTSDownloader(
         variables=[chirts_var],
         source=var_cfg.chirts_source,
+        backend="hf" if use_hf else "ucsb",
+        hf_url=cfg.hf_url_for(cf_var),
     )
     paths = dl.download(
         extent=extent,
