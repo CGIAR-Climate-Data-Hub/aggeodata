@@ -295,6 +295,19 @@ class GeneralConfig(BaseModel):
         Optional[float],
         Field(default=None, description="Output spatial resolution in CRS units (degrees for EPSG:4326). None keeps native resolution."),
     ] = None
+    download_format: Annotated[
+        Literal["netcdf", "zarr"],
+        Field(
+            default="netcdf",
+            description=(
+                "How downloaded data is left on disk. 'netcdf' (default) keeps one "
+                "file per day. 'zarr' consolidates each year into a single store — "
+                "{source}_{aoi}_{cf_var}_{year}.zarr, where aoi is the config file "
+                "stem — and deletes the daily files once the store is verified. "
+                "run_datacube reads either layout."
+            ),
+        ),
+    ] = "netcdf"
     output_format: Annotated[
         Literal["netcdf", "zarr", "both"],
         Field(

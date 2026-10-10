@@ -104,6 +104,15 @@ SOIL:
 #   The legacy name 'use_huggingface' is still accepted.
 # ---------------------------------------------------------------------------
 #
+#   download_format controls what the download step leaves on disk:
+#     "netcdf" (default) — one file per day, e.g. 2010/chirps_pr_20100101.nc
+#     "zarr"             — one cube per year per variable, named
+#                          {source}_{aoi}_{cf_var}_{year}.zarr (aoi = this
+#                          config file's stem), e.g. chirps_hnd_test_pr_2010.zarr.
+#                          The daily files are deleted once each year's store
+#                          is written and verified. run_datacube reads either
+#                          layout, preferring the yearly cubes when present.
+#
 #   output_format controls how the datacube is written:
 #     "netcdf" (default) — one compressed .nc file
 #     "zarr"             — a Zarr v3 store, chunked/quantised like the
@@ -120,8 +129,9 @@ GENERAL:
   nasa_power_backend:  "s3"        # "s3" (Zarr, fast) | "rest" (tile API)
   use_zarr:            true        # true = Zarr datacubes | false = official endpoints
 
-  # --- datacube output ---
-  output_format:       "netcdf"    # "netcdf" | "zarr" | "both"
+  # --- download + datacube output ---
+  download_format:     "zarr"    # "netcdf" (daily files) | "zarr" (one cube per year)
+  output_format:       "zarr"    # "netcdf" | "zarr" | "both"
   zarr_codec:          "zstd"     # "blosc" (smallest) | "zstd" (GDAL/QGIS can read it)
   zarr_quantize:       true        # scaled ints (0.1 K / 0.1 mm / 10 kJ) | false = float32
   zarr_sharded:        false       # true cuts file count but GDAL cannot read sharded stores

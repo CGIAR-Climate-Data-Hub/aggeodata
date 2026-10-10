@@ -308,6 +308,40 @@ sds = xr.open_dataset("soil_hnd_small.nc")
 # dims: depth x y | vars: clay, sand, silt, bdod, ...
 ```
 
+### Yearly Zarr cubes instead of daily files
+
+By default `run_download` leaves one NetCDF per day, which for a multi-year request means
+tens of thousands of files. Set `download_format: "zarr"` to collapse each year into a
+single store instead:
+
+```yaml
+GENERAL:
+  download_format: "zarr"   # "netcdf" (default) | "zarr"
+```
+
+```
+data/raw/pr_hnd_test_raw/
+    chirps_hnd_test_pr_2010.zarr/
+    chirps_hnd_test_pr_2011.zarr/
+```
+
+Stores are named `{source}_{aoi}_{cf_var}_{year}.zarr`, where **`aoi` is the stem of the
+configuration file** — `options/hnd_test.yaml` gives `chirps_hnd_test_pr_2010.zarr`. They
+use the same chunking, codec and quantisation as the datacube export above.
+
+* **Daily files are deleted** once their year's store is written *and* reopened with the
+  expected day count — never before, so a failed write leaves the originals intact. Each
+  store is written to a `.tmp` path and swapped into place, so an interrupted run cannot
+  replace a good store with a half-written one.
+* **Re-running is cheap.** Because the dailies are gone, the downloaders' own
+  "already on disk?" check would miss, so the pipeline instead narrows each request to the
+  span the stores don't already cover. An unchanged config is a no-op; extending the date
+  range fetches only the new days and merges them into the existing year.
+* **NASA POWER is skipped** — it already writes one multi-day NetCDF, so there is nothing
+  to consolidate.
+* `run_datacube` **prefers yearly stores** over loose daily files when both are present, so
+  an existing download folder keeps working and can be migrated without a rebuild.
+
 ### Exporting the climate cube as Zarr
 
 `run_datacube` can also write a **Zarr v3 store** laid out like the
@@ -390,6 +424,7 @@ aggeodata/
 │   └── transform/       # Datacube assembly
 │       ├── climate_cube.py
 │       ├── zarr_export.py   # Zarr v3 datacube export
+│       ├── yearly_zarr.py   # one cube per year per variable
 │       └── soil_cube.py  # SoilDataCubeBuilder
 ├── options/             # Example YAML configs
 └── tests/

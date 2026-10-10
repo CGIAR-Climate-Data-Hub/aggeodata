@@ -39,7 +39,11 @@ from tqdm import tqdm
 
 from ..config.loader import load_config
 from ..config.schemas import AgeodataConfig
-from ..ingestion.files_manager import find_date_instring, uncompress_zip_path
+from ..transform.yearly_zarr import (
+    collect_daily_files,
+    find_yearly_stores,
+    open_yearly_stores,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +80,10 @@ def run_datacube(config_path: str | os.PathLike) -> str:
     # 1. Collect date → filepath for every variable
     # ------------------------------------------------------------------
     var_files: dict[str, dict[str, str]] = {}
-    nasa_power_ds: dict[str, xr.Dataset] = {}   # multi-day NC opened once
+    # Variables served from an already-open multi-day Dataset rather than one
+    # file per date: NASA POWER's single NetCDF, and yearly Zarr cubes.
+    multiday_ds: dict[str, dict[str, xr.Dataset]] = {}
+    opened_stores: list[xr.Dataset] = []
 
     for cf_var, var_cfg in cfg.climate.variables.items():
         var_folder = cfg.var_folder(cf_var)
@@ -85,6 +92,22 @@ def run_datacube(config_path: str | os.PathLike) -> str:
         if not os.path.isdir(var_folder):
             logger.warning("Folder missing for %s (%s) — skipping", cf_var, var_folder)
             continue
+
+        # Yearly Zarr cubes (written by run_download with download_format=zarr)
+        # take precedence over loose daily files.
+        stores = find_yearly_stores(var_folder, cf_var)
+        if stores:
+            by_date, opened = open_yearly_stores(stores, start, end)
+            if by_date:
+                multiday_ds[cf_var] = by_date
+                var_files[cf_var] = {d: str(stores[d[:4]]) for d in by_date}
+                opened_stores.extend(opened)
+                logger.info("  %-10s  %d days from %d yearly Zarr cube(s)",
+                            cf_var, len(by_date), len(stores))
+                continue
+            for ds in opened:
+                ds.close()
+            logger.warning("Yearly Zarr cubes for %s hold no dates in range", cf_var)
 
         if source == "nasa_power":
             nc_files = glob(os.path.join(var_folder, "nasa_power_*.nc"))
@@ -95,7 +118,6 @@ def run_datacube(config_path: str | os.PathLike) -> str:
             # normalise time coord name
             if "time" not in ds.dims and "date" in ds.dims:
                 ds = ds.rename({"date": "time"})
-            nasa_power_ds[cf_var] = ds
             # Build date-set for common-date intersection; handle cftime safely
             import pandas as pd
             try:
@@ -105,9 +127,10 @@ def run_datacube(config_path: str | os.PathLike) -> str:
                     [pd.Timestamp(str(t)) for t in ds.time.values]
                 )
             dates = {t.strftime("%Y%m%d"): nc_files[0] for t in time_vals}
+            multiday_ds[cf_var] = {d: ds for d in dates}
             var_files[cf_var] = dates
         else:
-            files = _collect_per_day_files(cf_var, source, var_folder, start, end)
+            files = collect_daily_files(cf_var, source, var_folder, start, end)
             if not files:
                 logger.warning("No files found for %s in %s", cf_var, var_folder)
                 continue
@@ -148,7 +171,7 @@ def run_datacube(config_path: str | os.PathLike) -> str:
         ds = _build_single_date(
             date_str=date_str,
             var_files=var_files,
-            nasa_power_ds=nasa_power_ds,
+            multiday_ds=multiday_ds,
             ref_var=ref_var,
             resample_variables_fn=resample_variables,
             read_raster_data_fn=read_raster_data,
@@ -186,6 +209,13 @@ def run_datacube(config_path: str | os.PathLike) -> str:
                 batch_slabs.append(slab)
                 succeeded_dates.extend(batch_dates)
                 del batch_results   # release per-date datasets immediately
+
+    # Every slab is materialised, so the source stores can be released now.
+    for _store in opened_stores:
+        try:
+            _store.close()
+        except Exception:  # noqa: BLE001
+            pass
 
     if not batch_slabs:
         raise RuntimeError("All dates failed during loading. Check warnings above.")
@@ -321,61 +351,13 @@ def _save_zarr(cube: xr.Dataset, path: str, cfg: AgeodataConfig) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Per-day file collection
-# ---------------------------------------------------------------------------
-
-def _collect_per_day_files(
-    cf_var: str,
-    source: str,
-    var_folder: str,
-    start: str,
-    end: str,
-) -> dict[str, str]:
-    """Return {date_str: full_filepath} for daily NetCDF files."""
-    ys = int(start[:4])
-    ye = int(end[:4])
-    start_int = int(start.replace("-", ""))
-    end_int   = int(end.replace("-", ""))
-
-    # CHIRTS nests files in a variable subfolder (tmax/ or tmin/)
-    if source == "chirts":
-        chirts_native = "tmax" if cf_var == "tasmax" else "tmin"
-        search_root = os.path.join(var_folder, chirts_native)
-    else:
-        search_root = var_folder
-
-    # For AgERA5 extract zip archives first so globbing finds the daily NCs
-    if source == "agera5":
-        for year in range(ys, ye + 1):
-            zip_files = glob(os.path.join(search_root, f"*{year}*.zip"))
-            if zip_files:
-                uncompress_zip_path(search_root, str(year))
-
-    nc_files = sorted(glob(os.path.join(search_root, "**", "*.nc"), recursive=True))
-
-    result: dict[str, str] = {}
-    year_prefix = str(ys)[:3]          # e.g. "202"
-    for filepath in nc_files:
-        fname = os.path.basename(filepath)
-        try:
-            date_str = find_date_instring(fname, pattern=year_prefix)
-            date_int = int(date_str)
-            if start_int <= date_int <= end_int:
-                result[date_str] = filepath
-        except Exception:
-            pass
-
-    return result
-
-
-# ---------------------------------------------------------------------------
 # Single-date dataset builder
 # ---------------------------------------------------------------------------
 
 def _build_single_date(
     date_str: str,
     var_files: dict[str, dict[str, str]],
-    nasa_power_ds: dict[str, xr.Dataset],
+    multiday_ds: dict[str, dict[str, xr.Dataset]],
     ref_var: str,
     resample_variables_fn,
     read_raster_data_fn,
@@ -389,14 +371,25 @@ def _build_single_date(
         if filepath is None:
             raise KeyError(f"No file for {cf_var} on {date_str}")
 
-        if cf_var in nasa_power_ds:
-            ds = nasa_power_ds[cf_var]
+        if cf_var in multiday_ds:
+            import rioxarray  # noqa: F401 — registers the .rio accessor
+
+            ds = multiday_ds[cf_var][date_str]
             ts = datetime.strptime(date_str, "%Y%m%d")
             slice_ds = ds.sel(time=str(ts.date()), method="nearest")
             # Drop time dim so resample_variables sees a 2D field
             if "time" in slice_ds.dims:
                 slice_ds = slice_ds.isel(time=0, drop=True)
-            dict_xr[cf_var] = slice_ds
+            # Read the CRS before dropping spatial_ref: a yearly Zarr cube is
+            # opened with decode_coords="all", which makes spatial_ref a
+            # coordinate, so dropping it would take the CRS with it.
+            crs = slice_ds.rio.crs
+            slice_ds = slice_ds.drop_vars(["spatial_ref", "crs"], errors="ignore")
+            data_vars = [v for v in slice_ds.data_vars]
+            if data_vars and cf_var not in data_vars:
+                slice_ds = slice_ds.rename({data_vars[0]: cf_var})
+            slice_ds = slice_ds.rio.write_crs(crs or "EPSG:4326")
+            dict_xr[cf_var] = slice_ds.load()
         else:
             ds = read_raster_data_fn(filepath)
             # Drop any extra time/band dim — keep spatial only

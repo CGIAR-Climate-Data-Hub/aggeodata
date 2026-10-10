@@ -105,6 +105,8 @@ def run_download(config_path: str | os.PathLike) -> dict[str, dict]:
     extent = cfg.get_extent()
     start  = cfg.dates.starting_date
     end    = cfg.dates.ending_date
+    # The AOI tag in yearly store names is the config file's stem.
+    aoi = Path(os.fspath(config_path)).stem
 
     logger.info("aggeodata download  |  %s -> %s  |  extent: %s", start, end, extent)
     logger.info("Output root: %s", cfg.paths.output_path)
@@ -123,6 +125,24 @@ def run_download(config_path: str | os.PathLike) -> dict[str, dict]:
             cf_var, source, backend, out_folder,
         )
 
+        # With yearly Zarr the daily files are deleted, so the downloaders'
+        # own resume check can't see them — narrow the request to what the
+        # existing stores do not already cover.
+        dl_start, dl_end = start, end
+        if cfg.general.download_format == "zarr" and source != "nasa_power":
+            from ..transform.yearly_zarr import find_yearly_stores, pending_range
+
+            pending = pending_range(out_folder, cf_var, start, end)
+            if pending is None:
+                logger.info("  %s: already covered by yearly Zarr cubes — skipping", cf_var)
+                results[cf_var] = {
+                    y: str(p) for y, p in find_yearly_stores(out_folder, cf_var).items()
+                }
+                continue
+            dl_start, dl_end = pending
+            if (dl_start, dl_end) != (start, end):
+                logger.info("  %s: fetching only %s -> %s", cf_var, dl_start, dl_end)
+
         try:
             result = _download_variable(
                 cf_var=cf_var,
@@ -130,14 +150,24 @@ def run_download(config_path: str | os.PathLike) -> dict[str, dict]:
                 var_cfg=var_cfg,
                 out_folder=out_folder,
                 extent=extent,
-                start=start,
-                end=end,
+                start=dl_start,
+                end=dl_end,
                 cfg=cfg,
             )
             results[cf_var] = result
         except Exception as exc:  # noqa: BLE001
             logger.error("FAILED  %s (%s): %s", cf_var, source, exc)
             results[cf_var] = {}
+            continue
+
+        if cfg.general.download_format == "zarr":
+            try:
+                results[cf_var] = _consolidate_yearly(
+                    cf_var, source, out_folder, aoi, start, end, cfg
+                )
+            except Exception as exc:  # noqa: BLE001
+                # The raw files are still on disk, so this is recoverable.
+                logger.error("FAILED  %s: yearly Zarr consolidation: %s", cf_var, exc)
 
     # ------------------------------------------------------------------
     # Soil layers
@@ -160,6 +190,56 @@ def run_download(config_path: str | os.PathLike) -> dict[str, dict]:
 
     _log_summary(results)
     return results
+
+
+# ---------------------------------------------------------------------------
+# Yearly Zarr consolidation
+# ---------------------------------------------------------------------------
+
+def _consolidate_yearly(
+    cf_var: str,
+    source: str,
+    out_folder: str,
+    aoi: str,
+    start: str,
+    end: str,
+    cfg: AgeodataConfig,
+) -> dict:
+    """Collapse a variable's daily files into one Zarr store per year.
+
+    NASA POWER is skipped: it already writes a single multi-day NetCDF, so
+    there are no per-day files to consolidate.
+    """
+    if source == "nasa_power":
+        logger.info("  %s: NASA POWER is already a single file — not consolidating", cf_var)
+        return {"all": out_folder}
+
+    from ..transform.yearly_zarr import (
+        CubeGeometry,
+        consolidate_variable_to_yearly_zarr,
+    )
+
+    geometry = CubeGeometry(sharded=cfg.general.zarr_sharded)
+    if cfg.general.zarr_chunks:
+        t, y, x = cfg.general.zarr_chunks
+        geometry = CubeGeometry(
+            time_chunk=t, lat_chunk=y, lon_chunk=x,
+            time_shard=geometry.time_shard, lat_shard=geometry.lat_shard,
+            lon_shard=geometry.lon_shard, sharded=cfg.general.zarr_sharded,
+        )
+
+    logger.info("Consolidating %s into yearly Zarr cubes", cf_var)
+    return consolidate_variable_to_yearly_zarr(
+        cf_var=cf_var,
+        source=source,
+        var_folder=out_folder,
+        aoi=aoi,
+        start=start,
+        end=end,
+        geometry=geometry,
+        quantize=cfg.general.zarr_quantize,
+        codec=cfg.general.zarr_codec,
+    )
 
 
 # ---------------------------------------------------------------------------

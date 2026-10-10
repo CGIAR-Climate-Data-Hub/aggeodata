@@ -9,7 +9,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name        = "aggeodata"
-version     = "0.2.1"
+version     = "0.2.2"
 description = "Multi-source climate and soil data ingestion and datacube transforms (CHIRPS, CHIRTS, AgERA5, NASA POWER, SoilGrids)."
 readme      = "README.md"
 license     = {text = "MIT"}
