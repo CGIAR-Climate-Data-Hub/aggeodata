@@ -24,6 +24,7 @@ import glob as _glob
 import logging
 import os
 import re as _re
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -326,13 +327,40 @@ class SoilDataCubeBuilder:
         output_path: str,
         filename: str | None = None,
         verbose: bool = True,
+        output_format: str = "netcdf",
+        codec: str = "blosc",
     ) -> str:
-        """Build the soil datacube and save it to a NetCDF file.
+        """Build the soil datacube and save it.
+
+        Parameters
+        ----------
+        output_path : str
+            Directory to write into.
+        filename : str | None
+            Output name.  Defaults to ``soil_<folder>.<ext>``, where the
+            extension follows *output_format*.
+        verbose : bool
+            Report progress while building.
+        output_format : str
+            ``"netcdf"`` (default) or ``"zarr"``.  Zarr matches what
+            :func:`~aggeodata.pipelines.datacube.run_datacube` can emit for the
+            climate cube, so a pipeline can keep one format throughout.
+        codec : str
+            Zarr compressor — ``"blosc"`` (default) or ``"zstd"``, which GDAL
+            can read.  Ignored for NetCDF.
 
         Returns
         -------
         str
-            Path to the saved NetCDF file.
+            Path to the saved cube.
+
+        Notes
+        -----
+        Unlike the climate cube, soil variables are written as float32 rather
+        than scaled integers.  A soil profile has no time axis, so the archive
+        is small enough that quantisation buys little, and each property
+        (texture %, bulk density, pH, water contents) would need its own
+        scale — detail best not invented for marginal gain.
         """
         import rioxarray  # noqa: F401
 
@@ -355,13 +383,44 @@ class SoilDataCubeBuilder:
         except Exception:
             pass
 
+        fmt = output_format.lower()
+        if fmt not in {"netcdf", "zarr"}:
+            raise ValueError(
+                f"output_format must be 'netcdf' or 'zarr', got {output_format!r}"
+            )
+
         if filename is None:
             folder_name = Path(self.data_folder).name
-            filename = f"soil_{folder_name}.nc"
+            filename = f"soil_{folder_name}{'.zarr' if fmt == 'zarr' else '.nc'}"
 
         out_file = os.path.join(output_path, filename)
+
+        if fmt == "zarr":
+            return self._save_zarr(cube, out_file, codec)
+
         encoding = {var: {"zlib": True} for var in cube.data_vars}
         cube.to_netcdf(out_file, encoding=encoding, engine="netcdf4")
+        logger.info("Soil datacube saved → %s", out_file)
+        return out_file
+
+    @staticmethod
+    def _save_zarr(cube: xr.Dataset, out_file: str, codec: str) -> str:
+        """Write the soil cube as a Zarr v3 store with consolidated metadata."""
+        import numpy as np
+
+        from .zarr_export import compressors
+
+        shutil.rmtree(out_file, ignore_errors=True)
+
+        encoding: dict[str, dict] = {}
+        for name, var in cube.data_vars.items():
+            if name == "spatial_ref":
+                continue
+            if np.issubdtype(var.dtype, np.floating):
+                cube[name] = var.astype("float32")
+            encoding[name] = {"compressors": compressors(codec)}
+
+        cube.to_zarr(out_file, mode="w", encoding=encoding, consolidated=True)
         logger.info("Soil datacube saved → %s", out_file)
         return out_file
 
