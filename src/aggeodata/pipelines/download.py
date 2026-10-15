@@ -211,27 +211,33 @@ def _zarr_store_spec(cf_var: str, source: str, var_cfg, cfg: AgeodataConfig):
     :func:`download_daily_from_zarr`, so the two paths read exactly the same
     bytes with the same coordinate names.
     """
+    # zarr_url_for() returns only a config OVERRIDE, which is None unless the
+    # user set one; each downloader falls back to its own class default. Mirror
+    # that, or the fast path is handed url=None and dies with the unhelpful
+    # "No group found in store None at path ''".
     if source == "chirps":
         from ..ingestion.chirps import CHIRPSDownloader
         return {
-            "url": cfg.zarr_url_for(cf_var),
+            "url": cfg.zarr_url_for(cf_var) or CHIRPSDownloader.URL_HF,
             "variables": {CHIRPSDownloader.HF_VARIABLE: cf_var},
             "desc": "CHIRPS (HF)",
         }
 
     if source == "chirts":
-        from ..ingestion.chirts import _HF_VAR
+        from ..ingestion.chirts import CHIRTSDownloader, _HF_VAR
         native = _CF_TO_CHIRTS_VAR.get(cf_var)
         if native is None or var_cfg.chirts_source != "era5":
             return None          # only the era5 mirror has a Zarr store
         return {
-            "url": cfg.zarr_url_for(cf_var),
+            "url": cfg.zarr_url_for(cf_var) or CHIRTSDownloader.URL_HF,
             "variables": {_HF_VAR[native]: cf_var},
             "desc": "CHIRTS (HF)",
         }
 
     if source == "agera5":
-        from ..ingestion.agera5 import AGERA5_ARCO_VARIABLES
+        from ..ingestion.agera5 import (
+            AGERA5_ARCO_GEO_URL, AGERA5_ARCO_TIME_URL, AGERA5_ARCO_VARIABLES,
+        )
         from ..ingestion.zarr_backend import cds_storage_options
         key = var_cfg.agera5_key or _CF_TO_AGERA5_KEY.get(cf_var)
         # Only the keys present in the ARCO store have a direct read; the rest
@@ -239,8 +245,11 @@ def _zarr_store_spec(cf_var: str, source: str, var_cfg, cfg: AgeodataConfig):
         store_var = AGERA5_ARCO_VARIABLES.get(key) if key else None
         if not store_var:
             return None
+        # The two ARCO stores differ only in chunking; keep the downloader's choice.
+        default_url = (AGERA5_ARCO_GEO_URL if var_cfg.agera5_chunking == "geo"
+                       else AGERA5_ARCO_TIME_URL)
         return {
-            "url": cfg.zarr_url_for(cf_var),
+            "url": cfg.zarr_url_for(cf_var) or default_url,
             "variables": {store_var: cf_var},
             "storage_options": cds_storage_options(),
             "lat_name": "latitude",
@@ -271,7 +280,7 @@ def _try_yearly_fast_path(cf_var, source, var_cfg, out_folder, extent, start, en
     except Exception as exc:  # noqa: BLE001
         logger.debug("  %s: no Zarr fast path (%s)", cf_var, exc)
         return None
-    if not spec:
+    if not spec or not spec.get("url"):
         return None
 
     from ..ingestion.zarr_backend import fetch_zarr_years
