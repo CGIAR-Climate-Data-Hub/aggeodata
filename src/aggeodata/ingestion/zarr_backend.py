@@ -453,6 +453,7 @@ def fetch_zarr_years(
     dict[str, dict[str, str]]
         ``{output_variable: {year: store_path}}`` for every year now on disk.
     """
+    import rioxarray  # noqa: F401  - registers the .rio accessor
     from tqdm import tqdm
 
     from ..transform.yearly_zarr import find_yearly_stores, yearly_store_name
@@ -490,7 +491,15 @@ def fetch_zarr_years(
                 cube = sub[[store_var]].isel(time=np.flatnonzero(mask)).load()
                 if store_var != cf_var:
                     cube = cube.rename({store_var: cf_var})
+                # Drop the inherited grid-mapping, then state the CRS explicitly.
+                # Without the second step the exporter writes an *undefined*
+                # GEOGCS, whose to_epsg() is None — and consumers that test
+                # `to_epsg() != 4326` then reproject a cube that was already in
+                # 4326. The daily path arrives at EPSG:4326 via its per-day
+                # NetCDF writer; these stores are lat/lon degrees, so this is the
+                # same answer stated directly.
                 cube = cube.drop_vars(["spatial_ref", "crs"], errors="ignore")
+                cube = cube.rio.write_crs("EPSG:4326")
 
                 name = yearly_store_name(source, aoi, cf_var, year)
                 tmp = os.path.join(var_folder, f".{name}.tmp")
