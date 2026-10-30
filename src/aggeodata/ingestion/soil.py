@@ -44,6 +44,10 @@ AGGREGATESTORAGE_1000M: str = (
     "https://files.isric.org/soilgrids/latest/data_aggregated/1000m/"
 )
 
+#: ISRIC HTTPS root for the 250 m layers as Cloud-Optimised VRTs — the
+#: fallback when the WCS server (maps.isric.org) times out.
+VRTSTORAGE_250M: str = "https://files.isric.org/soilgrids/latest/data/"
+
 #: Variables available via the SoilGrids WCS/coverage API (250 m native res).
 _WCS_VARIABLES: frozenset[str] = frozenset(
     {"bdod", "cfvo", "clay", "nitrogen", "phh2o", "sand", "silt", "soc", "cec"}
@@ -75,12 +79,14 @@ def _download_using_rasterio(url: str, extent: list[float], output_path: str) ->
         # Reproject the EPSG:4326 bbox to the source CRS when the source is
         # projected (Homolosine metres).  Passing degree coordinates to a
         # projected transform produces a garbage window and 1×1 output.
+        # Densify the edges: in Homolosine x depends on latitude, so the two
+        # corners alone do not bound the box.
         rx1, ry1, rx2, ry2 = x1, y1, x2, y2
         if src.crs is not None and not src.crs.is_geographic:
-            from pyproj import Transformer
-            tr = Transformer.from_crs("EPSG:4326", src.crs, always_xy=True)
-            rx1, ry1 = tr.transform(x1, y1)
-            rx2, ry2 = tr.transform(x2, y2)
+            from rasterio.warp import transform_bounds
+            rx1, ry1, rx2, ry2 = transform_bounds(
+                "EPSG:4326", src.crs, x1, y1, x2, y2, densify_pts=21
+            )
 
         window = from_bounds(rx1, ry1, rx2, ry2, src.transform)
         transform = src.window_transform(window)
@@ -186,9 +192,18 @@ class SoilGridsDownloader:
 
                 try:
                     if var in _WCS_VARIABLES:
-                        self._get_from_soilgrid_package(
-                            var, depth, [x1, y1, x2, y2], out_path
-                        )
+                        try:
+                            self._get_from_soilgrid_package(
+                                var, depth, [x1, y1, x2, y2], out_path
+                            )
+                        except Exception as exc:  # noqa: BLE001
+                            logger.warning(
+                                "WCS failed for %s @ %s (%s); falling back to VRT",
+                                var, depth, exc,
+                            )
+                            self._get_from_soilgrid_vrt(
+                                var, depth, [x1, y1, x2, y2], out_path
+                            )
                     elif var in _STORAGE_1KM_VARIABLES:
                         self._get_from_soilgrid_1000aggregate(
                             var, depth, [x1, y1, x2, y2], self.output_folder
@@ -248,6 +263,36 @@ class SoilGridsDownloader:
         logger.info("Downloading 1-km layer: %s", url)
         output_path = os.path.join(output_folder, f"{var}_{depth}cm_mean.tif")
         _download_using_rasterio(url, extent, output_path)
+
+    @staticmethod
+    def _get_from_soilgrid_vrt(
+        var: str,
+        depth: str,
+        extent: list[float],
+        output_path: str,
+    ) -> None:
+        """Download a 250 m SoilGrids variable by streaming ISRIC's VRT.
+
+        Parameters
+        ----------
+        var : str
+            SoilGrids variable (e.g. ``"clay"``).
+        depth : str
+            Depth string (e.g. ``"5-15"``).
+        extent : list[float]
+            ``[xmin, ymin, xmax, ymax]`` in EPSG:4326.
+        output_path : str
+            Full output file path for the GeoTIFF.
+        """
+        url = VRTSTORAGE_250M + f"{var}/{var}_{depth}cm_mean.vrt"
+        logger.info("VRT request: %s -> %s", url, output_path)
+        # Partially written files would be skipped as "already exists" next run
+        try:
+            _download_using_rasterio(url, extent, output_path)
+        except Exception:
+            if os.path.exists(output_path):
+                os.remove(output_path)
+            raise
 
     @staticmethod
     def _get_from_soilgrid_package(

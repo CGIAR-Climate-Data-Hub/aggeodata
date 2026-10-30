@@ -114,12 +114,15 @@ class _SoilFolderManager:
         self.depths: list[str] | None = None
 
     @staticmethod
+    def _depth_pattern(variable: str, units: str = "cm") -> _re.Pattern:
+        # Anchored on the file name so a short name ("p") never matches
+        # another variable's files ("phh2o_0-5cm_mean.tif").
+        return _re.compile(rf"^{_re.escape(variable)}_(\d+-\d+){_re.escape(units)}_")
+
+    @staticmethod
     def _extract_depth(paths: list[str], variable: str, units: str = "cm") -> list[str]:
-        depths = []
-        for path in paths:
-            matches = list(_re.finditer(variable, path))[-1]
-            depths.append(path[matches.end() + 1 : path.index(units + "_")])
-        return depths
+        pattern = _SoilFolderManager._depth_pattern(variable, units)
+        return [pattern.match(os.path.basename(p)).group(1) for p in paths]
 
     @staticmethod
     def _sort_depths(depths: list[str]) -> tuple[list[str], list[int]]:
@@ -127,11 +130,15 @@ class _SoilFolderManager:
         sort_idx = list(np.argsort(np.array(init_depths).astype(int)))
         return [str(depths[i]) for i in sort_idx], sort_idx
 
-    def _check_variable_paths(self, variable: str) -> list[str]:
-        return _glob.glob(self.path + "/*{}*{}".format(variable, self._extension))
+    def _check_variable_paths(self, variable: str, units: str = "cm") -> list[str]:
+        pattern = self._depth_pattern(variable, units)
+        return [
+            p for p in _glob.glob(os.path.join(self.path, f"{variable}_*{self._extension}"))
+            if pattern.match(os.path.basename(p))
+        ]
 
     def _extract_depths(self, variable: str, units_string: str = "cm") -> list[str]:
-        variable_paths = self._check_variable_paths(variable)
+        variable_paths = self._check_variable_paths(variable, units_string)
         if variable_paths:
             depths = self._extract_depth(variable_paths, variable, units=units_string)
             self.depths, self._depthssorted = self._sort_depths(depths)
@@ -140,7 +147,7 @@ class _SoilFolderManager:
         return self.depths or []
 
     def variable_path(self, variable: str, units_string: str = "cm") -> list[str] | None:
-        variable_paths = self._check_variable_paths(variable)
+        variable_paths = self._check_variable_paths(variable, units_string)
         if not variable_paths:
             logger.warning("No data found for variable: %s", variable)
             return None
@@ -154,21 +161,23 @@ class _SoilFolderManager:
             if varinfo is not None:
                 paths_dict[var] = varinfo
 
-        depths_available = [
-            self._extract_depth(v, k, units=units_string) for k, v in paths_dict.items()
-        ]
-        self.depths = self._sort_depths(np.unique(depths_available))[0]
+        # Variables may cover different depths, so pair files by depth label
+        # rather than by list position.
+        depth_of = {
+            k: dict(zip(self._extract_depth(v, k, units=units_string), v))
+            for k, v in paths_dict.items()
+        }
+        all_depths = {d for by_depth in depth_of.values() for d in by_depth}
+        self.depths = self._sort_depths(list(all_depths))[0]
 
         if by != "depth":
             return paths_dict
 
         paths_by_depth: dict[str, dict[str, str]] = {}
-        for i, depth in enumerate(self.depths):
-            varpaths: dict[str, str] = {}
-            for k, v in paths_dict.items():
-                if i < len(v):
-                    varpaths[k] = v[i]
-            paths_by_depth[depth] = varpaths
+        for depth in self.depths:
+            paths_by_depth[depth] = {
+                k: by_depth[depth] for k, by_depth in depth_of.items() if depth in by_depth
+            }
         return paths_by_depth
 
 
