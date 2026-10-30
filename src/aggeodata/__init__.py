@@ -1,5 +1,12 @@
 """aggeodata — Multi-source climate and soil data ingestion and datacube transforms."""
 
+from importlib.metadata import PackageNotFoundError, version
+
+try:
+    __version__ = version("aggeodata")  # read from pyproject.toml at install time
+except PackageNotFoundError:  # running from a source tree that was never installed
+    __version__ = "unknown"
+
 from aggeodata.ingestion import (
     CHIRPSDownloader,
     CHIRTSDownloader,

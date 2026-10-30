@@ -28,6 +28,7 @@ import logging
 import os
 import re
 import shutil
+from datetime import datetime
 from glob import glob
 from pathlib import Path
 
@@ -35,7 +36,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
-from ..ingestion.files_manager import find_date_instring, uncompress_zip_path
+from ..ingestion.files_manager import uncompress_zip_path
 from .zarr_export import CubeGeometry, export_datacube_to_zarr, open_cube
 
 logger = logging.getLogger(__name__)
@@ -124,16 +125,31 @@ def collect_daily_files(
                 uncompress_zip_path(search_root, str(year))
 
     result: dict[str, str] = {}
-    year_prefix = str(ys)[:3]  # e.g. "202"
     for filepath in sorted(glob(os.path.join(search_root, "**", "*.nc"), recursive=True)):
-        fname = os.path.basename(filepath)
-        try:
-            date_str = find_date_instring(fname, pattern=year_prefix)
-            if start_int <= int(date_str) <= end_int:
-                result[date_str] = filepath
-        except Exception:  # noqa: BLE001 — a file we cannot date is not ours
-            pass
+        date_str = _date_in_filename(os.path.basename(filepath))
+        # a file we cannot date is not ours
+        if date_str and start_int <= int(date_str) <= end_int:
+            result[date_str] = filepath
     return result
+
+
+# Eight digits not embedded in a longer run, starting with a 19xx/20xx year.
+_YYYYMMDD = re.compile(r"(?<!\d)((?:19|20)\d{6})(?!\d)")
+
+
+def _date_in_filename(fname: str) -> str | None:
+    """Return the first valid ``YYYYMMDD`` date in *fname*, or ``None``.
+
+    Matching any year (rather than a fixed decade prefix) keeps multi-decade
+    ranges such as 1990-2025 intact.
+    """
+    for match in _YYYYMMDD.finditer(fname):
+        try:
+            datetime.strptime(match.group(1), "%Y%m%d")
+        except ValueError:
+            continue
+        return match.group(1)
+    return None
 
 
 # ---------------------------------------------------------------------------
