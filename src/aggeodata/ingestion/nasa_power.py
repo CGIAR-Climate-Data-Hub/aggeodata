@@ -34,12 +34,41 @@ logger = logging.getLogger(__name__)
 _POWER_REGIONAL_URL = "https://power.larc.nasa.gov/api/temporal/daily/regional"
 _S3_ZARR_PATH = "nasa-power/merra2/temporal/power_merra2_daily_temporal_lst.zarr"
 _MAX_DEGREE = 9.9  # NASA POWER regional API rejects ranges of exactly 10°
+_MIN_DEGREE = 2.0  # ...and anything narrower than 2° on either axis (HTTP 422)
 _TIMEOUT = 300
 
 
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+def _pad_bbox(
+    xmin: float, ymin: float, xmax: float, ymax: float, min_size: float = _MIN_DEGREE
+) -> tuple[float, float, float, float]:
+    """Widen a bounding box to the regional API's minimum span on each axis.
+
+    The regional endpoint answers 422 ("provide at least a 2 degree range")
+    for anything smaller, and a district is typically 0.2°. The box is grown
+    symmetrically about its centre and shifted back inside the world bounds if
+    that pushes it over an edge. At 0.5° the extra cells are a few kilobytes,
+    and the datacube step resamples onto the reference grid anyway.
+    """
+    def grow(lo: float, hi: float, bound: float) -> tuple[float, float]:
+        span = hi - lo
+        if span >= min_size:
+            return lo, hi
+        pad = (min_size - span) / 2
+        lo, hi = lo - pad, hi + pad
+        if lo < -bound:
+            lo, hi = -bound, -bound + min_size
+        elif hi > bound:
+            lo, hi = bound - min_size, bound
+        return lo, hi
+
+    xmin, xmax = grow(xmin, xmax, 180.0)
+    ymin, ymax = grow(ymin, ymax, 90.0)
+    return round(xmin, 6), round(ymin, 6), round(xmax, 6), round(ymax, 6)
+
 
 def _tile_bbox(
     xmin: float, ymin: float, xmax: float, ymax: float, max_size: float = _MAX_DEGREE
@@ -235,7 +264,13 @@ class NASAPowerDownloader:
 
         if rest_vars:
             logger.info("NASA POWER: fetching %s via REST API (tiled)", rest_vars)
-            xmin, ymin, xmax, ymax = extent
+            xmin, ymin, xmax, ymax = _pad_bbox(*extent)
+            if (xmin, ymin, xmax, ymax) != tuple(round(float(e), 6) for e in extent):
+                logger.info(
+                    "NASA POWER REST: extent widened to [%.3f, %.3f, %.3f, %.3f] "
+                    "(regional API needs >= %g deg on each axis)",
+                    xmin, ymin, xmax, ymax, _MIN_DEGREE,
+                )
             tiles = _tile_bbox(xmin, ymin, xmax, ymax)
             chunks = _yearly_chunks(starting_date, ending_date)
             tile_datasets: list[xr.Dataset] = []
