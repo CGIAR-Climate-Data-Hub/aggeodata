@@ -6,7 +6,7 @@ from .agera5 import AgEra5Downloader
 from .nasa_power import NASAPowerDownloader, NASAPowerS3Downloader
 from .gee import GEEDownloader
 from .climate import WeatherDownloadOrchestrator
-from .soil import SoilGridsDownloader
+from .soil import HF_SOILGRIDS_URL, SoilGridsDownloader
 from .boundaries import get_admin_boundary, list_admin_units
 from .cf_names import CF_VARIABLE_MAP, AGERA5_CF_MAP, to_cf_name, rename_cf_vars
 from .zarr_backend import (
@@ -33,6 +33,7 @@ __all__ = [
     "WeatherDownloadOrchestrator",
     # soil
     "SoilGridsDownloader",
+    "HF_SOILGRIDS_URL",
     # boundaries
     "get_admin_boundary",
     "list_admin_units",

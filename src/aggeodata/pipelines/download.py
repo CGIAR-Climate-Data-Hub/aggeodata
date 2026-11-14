@@ -188,6 +188,7 @@ def run_download(config_path: str | os.PathLike) -> dict[str, dict]:
                 soil_layers=cfg.soil.variables,
                 depths=cfg.soil.depths,
                 output_folder=soil_folder,
+                backend=cfg.soil.backend,
             )
             written = dl.download(boundaries=extent)
             results["soil"] = {os.path.basename(p): p for p in written}

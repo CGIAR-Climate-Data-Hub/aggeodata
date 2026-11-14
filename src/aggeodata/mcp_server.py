@@ -301,11 +301,14 @@ def download_soil(
     bbox: list[float] | None = None,
     variables: list[str] | None = None,
     depths: list[str] | None = None,
+    backend: str = "hf",
 ) -> dict[str, str]:
     """Download SoilGrids GeoTIFF files for a region.
 
-    Downloads physical/chemical variables (clay, sand, bdod, etc.) at 250 m via
-    the ISRIC WCS API, and hydraulic variables (wv0010, wv0033, wv1500) at 1 km
+    By default every variable comes at 1 km from the SoilGrids v2 Zarr datacube
+    on Hugging Face (``backend="hf"``).  ``backend="isric"`` uses ISRIC's
+    services instead: physical/chemical variables (clay, sand, bdod, etc.) at
+    250 m via the WCS API, hydraulic variables (wv0010, wv0033, wv1500) at 1 km
     via Google Cloud Storage.
 
     Parameters
@@ -329,6 +332,8 @@ def download_soil(
     depths : list[str] | None
         Depth intervals.  Defaults to
         ``["0-5", "5-15", "15-30", "30-60", "60-100"]``.
+    backend : str
+        ``"hf"`` (default, 1 km Zarr) or ``"isric"`` (250 m WCS / VRT).
 
     Returns
     -------
@@ -344,9 +349,13 @@ def download_soil(
     extent = _resolve_extent(country_code, feature_name, adm_level, bbox)
 
     from aggeodata.ingestion.soil import SoilGridsDownloader
-    dl = SoilGridsDownloader(soil_layers=variables, depths=depths, output_folder=output_folder)
+    import os
+
+    dl = SoilGridsDownloader(
+        soil_layers=variables, depths=depths, output_folder=output_folder, backend=backend
+    )
     downloaded = dl.download(boundaries=extent)
-    return {str(k): str(v) for k, v in downloaded.items()}
+    return {os.path.basename(p): str(p) for p in downloaded}
 
 
 @mcp.tool()

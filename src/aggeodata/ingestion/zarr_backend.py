@@ -135,7 +135,9 @@ def cds_storage_options(path: str | os.PathLike | None = None) -> dict:
 # Store access
 # ---------------------------------------------------------------------------
 
-def open_remote_zarr(url: str, storage_options: dict | None = None) -> xr.Dataset:
+def open_remote_zarr(
+    url: str, storage_options: dict | None = None, **open_kwargs: object
+) -> xr.Dataset:
     """Open a consolidated remote Zarr store.
 
     Parameters
@@ -145,6 +147,9 @@ def open_remote_zarr(url: str, storage_options: dict | None = None) -> xr.Datase
     storage_options : dict | None
         Passed to fsspec — e.g. ``cds_storage_options()`` for the ECMWF ARCO
         datastore.  ``None`` for public stores.
+    **open_kwargs
+        Extra arguments for :func:`xarray.open_zarr` — e.g.
+        ``mask_and_scale=False`` to keep a store's stored integers.
 
     Returns
     -------
@@ -160,7 +165,7 @@ def open_remote_zarr(url: str, storage_options: dict | None = None) -> xr.Datase
 
     logger.info("Zarr: opening %s", url)
     return xr.open_zarr(
-        url, consolidated=True, chunks={}, storage_options=storage_options
+        url, consolidated=True, chunks={}, storage_options=storage_options, **open_kwargs
     )
 
 

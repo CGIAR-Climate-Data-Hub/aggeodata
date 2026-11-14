@@ -15,7 +15,7 @@ then assembles them into analysis-ready NetCDF datacubes aligned to a common gri
 | [CHIRTS](https://www.chc.ucsb.edu/data/chirts) | Tmax (`tasmax`), Tmin (`tasmin`) | 0.05 deg | 1983–present | No |
 | [AgERA5](https://cds.climate.copernicus.eu/datasets/sis-agrometeorological-indicators) | Solar radiation (`rsds`), wind, RH, VPD | 0.1 deg | 1979–present | Yes — CDS |
 | [NASA POWER](https://power.larc.nasa.gov/) | Solar radiation (`rsds`), wind, Tmax, Tmin | 0.5 deg | 1981–present | No |
-| [SoilGrids](https://soilgrids.org/) | clay, sand, silt, bdod, cfvo, soc, phh2o, wv0010, wv0033, wv1500 | 250 m (~0.002 deg) | Static | No |
+| [SoilGrids](https://soilgrids.org/) | clay, sand, silt, bdod, cfvo, cec, nitrogen, soc, phh2o, wv0010, wv0033, wv1500 | 1 km (1/120 deg) from the Hugging Face Zarr by default; 250 m via ISRIC (`backend="isric"`) | Static | No |
 
 ### Faster downloads via analysis-ready Zarr datacubes
 
@@ -29,6 +29,11 @@ bounding box plus a date range is one indexed read:
 | CHIRPS v3 daily | [`aaguilar90/chirps-v3-daily-rnl`](https://huggingface.co/datasets/aaguilar90/chirps-v3-daily-rnl) | `precip` | none |
 | CHIRTS-ERA5 daily | [`aaguilar90/chirts-era5-daily`](https://huggingface.co/datasets/aaguilar90/chirts-era5-daily) | `Tmax`, `Tmin` | none |
 | AgERA5 | [ECMWF ARCO datastore](https://arco.datastores.ecmwf.int/) | all 16 variables aggeodata exposes | same `~/.cdsapirc` key |
+| SoilGrids v2 (1 km) | [`aaguilar90/soilgrids-v2-1km`](https://huggingface.co/datasets/aaguilar90/soilgrids-v2-1km) | all 12 properties, depths 0–100 cm | none |
+
+SoilGrids uses its store **by default** — no config needed. `SOIL.backend: isric` switches
+back to ISRIC's WCS (250 m texture and chemistry, one request per variable and depth).
+Depth `100-200` is not in the store and is fetched from ISRIC automatically.
 
 Turn it on with one line in the config:
 
@@ -185,12 +190,14 @@ from aggeodata.transform.soil_cube import SoilDataCubeBuilder
 
 bbox = [-87.5, 14.2, -87.2, 14.5]  # [xmin, ymin, xmax, ymax]
 
-# 1. Download GeoTIFF files from SoilGrids REST API
+# 1. Download GeoTIFF files — by default from the SoilGrids v2 1 km Zarr datacube
+#    on Hugging Face (aaguilar90/soilgrids-v2-1km): one read per variable, all depths
 dl = SoilGridsDownloader(
     soil_layers=["clay", "sand", "silt", "bdod", "cfvo",
                  "soc", "phh2o", "wv0010", "wv0033", "wv1500"],
     depths=["0-5", "5-15", "15-30", "30-60", "60-100"],
     output_folder="D:/data/hnd_small/soil_raw",
+    # backend="isric",  # ISRIC WCS/VRT instead: 250 m texture/chemistry, slower
 )
 dl.download(boundaries=bbox)
 

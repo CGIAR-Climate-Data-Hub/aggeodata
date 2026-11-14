@@ -250,6 +250,16 @@ class SoilConfig(BaseModel):
             description="CF/SoilGrids variable used as the spatial reference when building the cube.",
         ),
     ]
+    backend: Annotated[
+        Literal["hf", "isric"],
+        Field(
+            default="hf",
+            description=(
+                "'hf' (default): SoilGrids v2 at 1 km from the Hugging Face Zarr datacube. "
+                "'isric': ISRIC WCS/VRT (250 m) plus 1 km hydraulic layers."
+            ),
+        ),
+    ] = "hf"
 
 
 class GeneralConfig(BaseModel):
