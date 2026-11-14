@@ -225,6 +225,23 @@ def subset_zarr(
     xmin, ymin, xmax, ymax = extent
     lat = ds[lat_name].values
     lon = ds[lon_name].values
+
+    # Keep one extra ring of cells for stores coarser than the 0.05 deg grids
+    # (CHIRPS / CHIRTS) that serve as the datacube's reference. A centre-in-box
+    # cut drops a coarse cell whose centre falls just outside the extent even
+    # though it covers reference cells inside it: on Nandom the AgERA5 cell at
+    # -2.9 deg was cut, the western 0.05 deg column had no radiation, and DSSAT
+    # skipped a quarter of the district. The 0.05 deg stores stay as they are,
+    # so the reference grid, and the pixel count, do not change.
+    def _step(c) -> float:
+        return float(np.abs(np.diff(c[:2]))[0]) if len(c) > 1 else 0.0
+    _REF_STEP = 0.05 + 1e-6
+    dx, dy = _step(lon), _step(lat)
+    if dx > _REF_STEP:
+        xmin, xmax = xmin - dx, xmax + dx
+    if dy > _REF_STEP:
+        ymin, ymax = ymin - dy, ymax + dy
+
     lat_slice = slice(ymax, ymin) if lat[0] > lat[-1] else slice(ymin, ymax)
     lon_slice = slice(xmax, xmin) if lon[0] > lon[-1] else slice(xmin, xmax)
 
