@@ -18,7 +18,9 @@ __all__ = ["get_admin_boundary", "list_admin_units"]
 import io
 import json
 import logging
+import os
 from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
 import geopandas as gpd
@@ -40,12 +42,27 @@ def _fetch_json(url: str) -> Any:
     return resp.json()
 
 
+def _detail() -> str:
+    """``simplified`` (default) or ``full``, from ``AGGEODATA_BOUNDARY_DETAIL``.
+
+    The full file is the national survey's line work: Colombia ADM2 is 210 MB
+    and takes ~25 s to download plus ~25 s to parse. The simplified one is
+    10 MB with the same features and names, and its edges sit well inside a
+    1 km soil or 5 km climate cell.
+    """
+    d = os.environ.get("AGGEODATA_BOUNDARY_DETAIL", "simplified").strip().lower()
+    return "full" if d == "full" else "simplified"
+
+
 def _geojson_url(country_code: str, adm_level: int) -> str:
     """Return the GeoJSON download URL from the GeoBoundaries metadata endpoint."""
     url = f"{_GEOBOUNDARIES_BASE}/{country_code.upper()}/ADM{adm_level}/"
     logger.info("GeoBoundaries: fetching metadata from %s", url)
     meta = _fetch_json(url)
-    geojson_url = meta.get("gjDownloadURL", "")
+    geojson_url = ""
+    if _detail() == "simplified":
+        geojson_url = meta.get("simplifiedGeometryGeoJSON", "")
+    geojson_url = geojson_url or meta.get("gjDownloadURL", "")
     if not geojson_url:
         raise ValueError(
             f"GeoBoundaries returned no GeoJSON download URL for "
@@ -54,16 +71,42 @@ def _geojson_url(country_code: str, adm_level: int) -> str:
     return geojson_url
 
 
+def _cache_dir() -> Path:
+    root = os.environ.get("AGGEODATA_CACHE") or (Path.home() / ".cache" / "aggeodata")
+    return Path(root) / "boundaries"
+
+
+@lru_cache(maxsize=32)
+def _fetch_geojson_text(country_code: str, adm_level: int) -> str:
+    """Return the raw GeoJSON for one country and level, downloading it once.
+
+    The name lookup and the geometry used to download the same file
+    separately; both now read this, and the file is kept on disk so a restart
+    does not fetch it again.
+    """
+    cached = _cache_dir() / f"{country_code.upper()}_ADM{adm_level}_{_detail()}.geojson"
+    if cached.is_file():
+        logger.info("GeoBoundaries: using cached %s", cached)
+        return cached.read_text(encoding="utf-8")
+    geojson_url = _geojson_url(country_code, adm_level)
+    logger.info("GeoBoundaries: downloading GeoJSON from %s", geojson_url)
+    resp = requests.get(geojson_url, timeout=_REQUEST_TIMEOUT)
+    resp.raise_for_status()
+    text = resp.text
+    try:
+        cached.parent.mkdir(parents=True, exist_ok=True)
+        tmp = cached.with_suffix(".part")
+        tmp.write_text(text, encoding="utf-8")
+        tmp.replace(cached)
+    except OSError as exc:  # a read-only home is not fatal
+        logger.warning("GeoBoundaries: could not cache %s: %s", cached, exc)
+    return text
+
+
 @lru_cache(maxsize=32)
 def _fetch_names_cached(country_code: str, adm_level: int) -> list[dict[str, Any]]:
-    """Download and cache only the feature properties (no geometry).
-
-    Much faster than ``_fetch_geojson_cached`` for name lookups — avoids
-    parsing polygon coordinates entirely.
-    """
-    geojson_url = _geojson_url(country_code, adm_level)
-    logger.info("GeoBoundaries: downloading properties from %s", geojson_url)
-    geojson_data = _fetch_json(geojson_url)
+    """Return only the feature properties (no geometry) for name lookups."""
+    geojson_data = json.loads(_fetch_geojson_text(country_code, adm_level))
     return [f["properties"] for f in geojson_data.get("features", [])]
 
 
@@ -75,10 +118,7 @@ def _fetch_geojson_cached(country_code: str, adm_level: int) -> gpd.GeoDataFrame
     (country_code, adm_level) pair per Python session.  Subsequent calls
     for the same country/level are instant.
     """
-    geojson_url = _geojson_url(country_code, adm_level)
-    logger.info("GeoBoundaries: downloading GeoJSON from %s", geojson_url)
-    geojson_data = _fetch_json(geojson_url)
-    gdf = gpd.read_file(io.StringIO(json.dumps(geojson_data)))
+    gdf = gpd.read_file(io.StringIO(_fetch_geojson_text(country_code, adm_level)))
     logger.info(
         "GeoBoundaries: loaded %d features  columns=%s",
         len(gdf), list(gdf.columns),
