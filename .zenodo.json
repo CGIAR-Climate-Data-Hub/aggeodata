@@ -11,8 +11,8 @@
     },
     {
       "name": "Agudelo, Diego",
-      "affiliation": "Alliance of Bioversity International and CIAT",
-    },
+      "affiliation": "Alliance of Bioversity International and CIAT"
+    }
   ],
   "contributors": [
     {
@@ -23,7 +23,8 @@
     {
       "name": "Rivera, Ovidio",
       "affiliation": "Alliance of Bioversity International and CIAT",
-      "type": "0000-0003-4297-8229"
+      "type": "Other",
+      "orcid": "0000-0003-4297-8229"
     }
   ],
   "license": "MIT",
