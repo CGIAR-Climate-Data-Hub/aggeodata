@@ -1,0 +1,36 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it using the metadata below."
+type: software
+title: "aggeodata: multi-source climate and soil data ingestion and datacube builder for agricultural research"
+version: 0.2.7
+date-released: 2026-11-20
+abstract: >-
+  aggeodata is a Python package that downloads daily climate and soil data
+  (CHIRPS, CHIRTS, AgERA5, NASA POWER, SoilGrids) and builds analysis-ready
+  NetCDF or Zarr datacubes aligned to a common grid and CRS. It can read
+  cloud-optimized Zarr v3 mirrors on Hugging Face and the ECMWF ARCO store,
+  and includes an MCP server for AI agents. It supports the CGIAR Climate
+  Data Hub AI agent skills.
+authors:
+  - family-names: "Aguilar-Ariza"
+    given-names: "Andrés"
+    orcid: "https://orcid.org/0000-0001-8179-9931"
+    affiliation: "Alliance of Bioversity International and CIAT"
+  - family-names: "Agudelo"
+    given-names: "Diego"
+    affiliation: "Alliance of Bioversity International and CIAT"
+repository-code: "https://github.com/CGIAR-Climate-Data-Hub/aggeodata"
+license: MIT
+keywords:
+  - climate data
+  - soil data
+  - CHIRPS
+  - CHIRTS
+  - AgERA5
+  - NASA POWER
+  - SoilGrids
+  - datacube
+  - Zarr
+  - geospatial
+  - CGIAR
+  - Climate Data Hub
