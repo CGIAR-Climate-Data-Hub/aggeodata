@@ -5,6 +5,14 @@ Multi-source climate and soil data ingestion and datacube builder for agricultur
 Downloads daily gridded data from **CHIRPS**, **CHIRTS**, **AgERA5**, **NASA POWER**, and **SoilGrids**,
 then assembles them into analysis-ready NetCDF datacubes aligned to a common grid and CRS.
 
+**Zarr options at a glance** — three settings, three different jobs:
+
+| Setting | What it does | Section |
+|---------|--------------|---------|
+| `use_zarr: true` | *Read* input data from remote Zarr stores (Hugging Face, ECMWF ARCO) instead of per-day files | [Faster downloads](#faster-downloads-via-analysis-ready-zarr-datacubes) |
+| `download_format: "zarr"` | *Save* downloads as one Zarr store per year instead of daily NetCDF files | [Yearly Zarr cubes](#yearly-zarr-cubes-instead-of-daily-files) |
+| `output_format: "zarr"` | *Export* the final climate datacube as a Zarr v3 store | [Exporting as Zarr](#exporting-the-climate-cube-as-zarr) |
+
 ---
 
 ## Data sources
@@ -61,8 +69,6 @@ CLIMATE:
 
 Every backend writes the **same per-day NetCDF layout** in the same native units, so
 `run_datacube` is unchanged. Requires the `download` extra (`zarr`).
-
-`use_huggingface` / `hf_url` are still accepted as aliases for `use_zarr` / `zarr_url`.
 
 **AgERA5 notes**
 
@@ -123,7 +129,7 @@ AgERA5 requires a free CDS account. Register at
 [cds.climate.copernicus.eu](https://cds.climate.copernicus.eu/), then create `~/.cdsapirc`:
 
 ```
-url: https://cds.climate.copernicus.eu/api/v2
+url: https://cds.climate.copernicus.eu/api
 key: <YOUR-UID>:<YOUR-API-KEY>
 ```
 
@@ -288,15 +294,6 @@ dl.download(
 )
 ```
 
-**AgERA5 (requires CDS key)**
-```python
-from aggeodata.ingestion.agera5 import AgERA5Downloader
-
-dl = AgERA5Downloader(variable="rsds", output_folder="D:/data/agera5_raw")
-dl.download(extent=[-87.5, 14.2, -87.2, 14.5],
-            starting_date="2020-01-01", ending_date="2022-12-31")
-```
-
 ---
 
 ## Output datacube structure
@@ -352,7 +349,7 @@ use the same chunking, codec and quantisation as the datacube export above.
 ### Exporting the climate cube as Zarr
 
 `run_datacube` can also write a **Zarr v3 store** laid out like the
-[GeoSPOptimizer](https://github.com/CGIAR-Climate-Data-Hub) archives — same chunk
+GeoSPOptimizer archives — same chunk
 geometry, codec and integer quantisation — so a cube built here matches the published
 CHIRPS / CHIRTS / AgERA5 datacubes and can be sliced without reading the whole file:
 
@@ -397,6 +394,44 @@ The default is `blosc` for consistency with the published archives. **Switch to
 
 ---
 
+## Use with AI agents (MCP server)
+
+aggeodata includes an [MCP](https://modelcontextprotocol.io/) server, so AI agents
+(Claude, Codex and other MCP clients) can download and process data from a prompt.
+Install the `mcp` extra (see [Install](#install)) and start the server with:
+
+```bash
+python -m aggeodata.mcp_server
+```
+
+Example client configuration (e.g. `.mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "aggeodata": {
+      "command": "python",
+      "args": ["-m", "aggeodata.mcp_server"]
+    }
+  }
+}
+```
+
+Available tools:
+
+| Group | Tools |
+|-------|-------|
+| Boundaries | `list_admin_units` |
+| Download | `download_chirps`, `download_chirts`, `download_nasa_power`, `download_agera5`, `download_gee`, `download_soil` |
+| Datacubes | `build_climate_datacube`, `build_soil_datacube`, `reshape_flat_soil_cube` |
+| Climate features | `list_available_climate_indices`, `compute_climate_features`, `run_summarization_pipeline` |
+
+The download tools accept a bounding box or a country code and admin-unit name.
+The [CDH AI agent skills](https://cgiar-climate-data-hub.github.io/skills/) build on
+this package.
+
+---
+
 ## Use with ag-cube-cm (crop modeling)
 
 Once you have weather and soil datacubes, pass them directly to
@@ -418,27 +453,46 @@ for a full end-to-end workflow.
 ```
 aggeodata/
 ├── src/aggeodata/
+│   ├── config/          # YAML config loader and schemas
 │   ├── ingestion/       # Source-specific downloaders
 │   │   ├── chirps.py
 │   │   ├── chirts.py
 │   │   ├── zarr_backend.py  # Zarr datacube backend (CHIRPS / CHIRTS / AgERA5)
 │   │   ├── agera5.py
 │   │   ├── nasa_power.py
+│   │   ├── gee.py           # Google Earth Engine downloads
+│   │   ├── boundaries.py    # administrative boundaries lookup
 │   │   └── soil.py
+│   ├── features/        # Climate indices and meteorological summaries
 │   ├── pipelines/       # High-level pipeline entry points
 │   │   ├── download.py  # run_download(config_path)
 │   │   └── datacube.py  # run_datacube(config_path)
-│   └── transform/       # Datacube assembly
-│       ├── climate_cube.py
-│       ├── zarr_export.py   # Zarr v3 datacube export
-│       ├── yearly_zarr.py   # one cube per year per variable
-│       └── soil_cube.py  # SoilDataCubeBuilder
+│   ├── transform/       # Datacube assembly
+│   │   ├── climate_cube.py
+│   │   ├── zarr_export.py   # Zarr v3 datacube export
+│   │   ├── cog_export.py    # Cloud-optimized GeoTIFF export
+│   │   ├── yearly_zarr.py   # one cube per year per variable
+│   │   └── soil_cube.py     # SoilDataCubeBuilder
+│   ├── utils/           # Spatial helpers and visualization
+│   └── mcp_server.py    # MCP server for AI agents
 ├── options/             # Example YAML configs
 └── tests/
 ```
 
 ---
 
+## How to cite
+
+If you use aggeodata, please cite the archived release on Zenodo:
+
+> Aguilar-Ariza, A. (2026). *aggeodata: multi-source climate and soil data ingestion and
+> datacube builder for agricultural research* (v0.2.6). Zenodo. https://doi.org/[ZENODO-DOI]
+
+---
+
 ## License
 
-MIT — Climate Data Hub, CGIAR
+MIT — Climate Data Hub, CGIAR. See [LICENSE](LICENSE).
+
+**Compatibility note:** `use_huggingface` / `hf_url` are still accepted as aliases for
+`use_zarr` / `zarr_url`.

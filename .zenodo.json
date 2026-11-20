@@ -1,0 +1,79 @@
+{
+  "title": "aggeodata: multi-source climate and soil data ingestion and datacube builder for agricultural research",
+  "upload_type": "software",
+  "version": "0.2.7",
+  "description": "<p><strong>aggeodata</strong> is a Python package for downloading daily gridded climate data and soil data, and assembling them into analysis-ready NetCDF datacubes aligned to a common grid and CRS. It supports agricultural and climate change research in the CGIAR Climate Data Hub (CDH).</p><p>Supported sources:</p><ul><li><strong>CHIRPS</strong>: precipitation (0.05°, 1981–present).</li><li><strong>CHIRTS</strong>: maximum and minimum temperature (0.05°, 1983–present).</li><li><strong>AgERA5</strong>: solar radiation, wind, relative humidity, vapour pressure deficit and other agrometeorological variables (0.1°, 1979–present).</li><li><strong>NASA POWER</strong>: solar radiation, wind and temperature (0.5°, 1981–present).</li><li><strong>SoilGrids v2</strong>: 12 soil properties at 1 km (default) or 250 m (ISRIC).</li></ul><p>Besides the official endpoints, aggeodata can read cloud-optimized Zarr v3 datacubes: the CDH mirrors of CHIRPS v3 daily, CHIRTS-ERA5 daily and SoilGrids v2 (1 km) on Hugging Face, and the ECMWF ARCO store for AgERA5. With these stores, a bounding box and date range is a single indexed read instead of many per-day downloads. All backends write the same per-day NetCDF layout, so the datacube step does not change.</p><p>The package also includes an MCP server for use with AI agents and is used by the CDH AI agent skills. Documentation: <a href=\"https://github.com/CGIAR-Climate-Data-Hub/aggeodata\">https://github.com/CGIAR-Climate-Data-Hub/aggeodata</a>.</p>",
+  "creators": [
+    {
+      "name": "Aguilar-Ariza, Andrés",
+      "affiliation": "Alliance of Bioversity International and CIAT",
+      "orcid": "0000-0001-8179-9931"
+    },
+    {
+      "name": "Agudelo, Diego",
+      "affiliation": "Alliance of Bioversity International and CIAT",
+    },
+  ],
+  "contributors": [
+    {
+      "name": "Garzón, David",
+      "affiliation": "Alliance of Bioversity International and CIAT",
+      "type": "Other"
+    },
+    {
+      "name": "Rivera, Ovidio",
+      "affiliation": "Alliance of Bioversity International and CIAT",
+      "type": "0000-0003-4297-8229"
+    }
+  ],
+  "license": "MIT",
+  "access_right": "open",
+  "keywords": [
+    "climate data",
+    "soil data",
+    "CHIRPS",
+    "CHIRTS",
+    "AgERA5",
+    "NASA POWER",
+    "SoilGrids",
+    "datacube",
+    "Zarr",
+    "xarray",
+    "geospatial",
+    "CGIAR",
+    "Climate Data Hub"
+  ],
+  "related_identifiers": [
+    {
+      "identifier": "https://github.com/CGIAR-Climate-Data-Hub/aggeodata",
+      "relation": "isSupplementTo",
+      "resource_type": "software",
+      "scheme": "url"
+    },
+    {
+      "identifier": "https://github.com/CGIAR-Climate-Data-Hub/skills",
+      "relation": "isRequiredBy",
+      "resource_type": "software",
+      "scheme": "url"
+    },
+    {
+      "identifier": "https://huggingface.co/datasets/aaguilar90/chirps-v3-daily-rnl",
+      "relation": "references",
+      "resource_type": "dataset",
+      "scheme": "url"
+    },
+    {
+      "identifier": "https://huggingface.co/datasets/aaguilar90/chirts-era5-daily",
+      "relation": "references",
+      "resource_type": "dataset",
+      "scheme": "url"
+    },
+    {
+      "identifier": "https://huggingface.co/datasets/aaguilar90/soilgrids-v2-1km",
+      "relation": "references",
+      "resource_type": "dataset",
+      "scheme": "url"
+    }
+  ],
+  "language": "eng"
+}
